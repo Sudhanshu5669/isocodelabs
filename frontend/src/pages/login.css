@@ -1,0 +1,83 @@
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+
+.login-art {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(20, 26, 24, 0) 45%, rgba(20, 26, 24, 0.7)),
+    url('/images/rooms/living.jpg') center / cover;
+  display: flex;
+  align-items: flex-end;
+  padding: 48px;
+  color: #fff;
+}
+.login-brand {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+.login-tagline {
+  margin-top: 12px;
+  max-width: 420px;
+  font-family: var(--font-display);
+  font-size: 36px;
+  line-height: 1.12;
+}
+
+.login-panel {
+  display: grid;
+  place-items: center;
+  padding: 40px 24px;
+}
+.login-form {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.login-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.login-form h1 {
+  font-size: 44px;
+  line-height: 1.05;
+  margin-top: -8px;
+}
+
+.login-demo {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.login-demo p {
+  font-size: 13px;
+  color: var(--muted);
+}
+.login-demo div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.login-demo .btn {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+  .login-art {
+    display: none;
+  }
+}

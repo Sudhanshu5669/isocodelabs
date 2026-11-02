@@ -1,0 +1,46 @@
+.shell {
+  min-height: 100vh;
+}
+.shell-header {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shell-brand {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+.shell-user {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.shell-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.shell-role {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.shell-user .btn {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+.shell-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
