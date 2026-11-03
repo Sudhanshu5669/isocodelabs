@@ -80,9 +80,18 @@ func NewRouter(cfg config.Config, db *pgxpool.Pool) http.Handler {
 			r.Post("/visits/{id}/cancel", s.staffCancelVisit)
 			r.Post("/visits/{id}/outcome", s.staffVisitOutcome)
 
-			// Only the sales head manages the slots buyers can pick.
-			r.With(auth.RequireRole(auth.RoleHead)).Post("/slots", s.createSlot)
-			r.With(auth.RequireRole(auth.RoleHead)).Delete("/slots/{id}", s.deleteSlot)
+			// Leads. Executives see their own; the head sees all (enforced in the store).
+			r.Get("/leads", s.listLeads)
+			r.Post("/leads", s.createLead)
+			r.Post("/leads/import", s.importLeads)
+			r.Get("/leads/{id}", s.getLead)
+
+			// Only the sales head manages slots, hands out leads and settles duplicates.
+			head := auth.RequireRole(auth.RoleHead)
+			r.With(head).Post("/slots", s.createSlot)
+			r.With(head).Delete("/slots/{id}", s.deleteSlot)
+			r.With(head).Post("/leads/{id}/assign", s.assignLead)
+			r.With(head).Post("/leads/{id}/duplicate", s.resolveDuplicate)
 		})
 	})
 	return r
