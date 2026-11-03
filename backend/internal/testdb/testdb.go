@@ -108,9 +108,10 @@ func Open(ctx context.Context, envFile string) (pool *pgxpool.Pool, cleanup func
 		return nil, noop, errors.New("test schema was not migrated; refusing to continue")
 	}
 
-	// Fixture every booking test needs.
+	// Fixture every test needs: two projects.
 	if _, err := testPool.Exec(ctx, `INSERT INTO projects (id, name, rera_number, locality, address, latitude, longitude)
-		VALUES ('project-1', 'Project 1', 'TEST-RERA', 'Ahmedabad', 'Test address', 23.0, 72.5)`); err != nil {
+		VALUES ('project-1', 'Project 1', 'TEST-RERA', 'Ahmedabad', 'Test address', 23.0, 72.5),
+		       ('project-2', 'Project 2', 'TEST-RERA-2', 'Ahmedabad', 'Test address', 23.1, 72.6)`); err != nil {
 		cleanup()
 		return nil, noop, err
 	}
