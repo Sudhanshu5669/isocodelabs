@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"leadflow/internal/models"
 )
 
 const (
@@ -18,8 +20,9 @@ const (
 	// SessionTTL is how long a login lasts.
 	SessionTTL = 12 * time.Hour
 
-	RoleExecutive = "executive"
-	RoleHead      = "head"
+	// The role names live in package models; these aliases keep auth call sites short.
+	RoleExecutive = models.RoleExecutive
+	RoleHead      = models.RoleHead
 )
 
 // ErrNoSession means the token is unknown or expired.
