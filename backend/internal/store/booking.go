@@ -268,6 +268,7 @@ type VisitDetail struct {
 	ExecutiveName string    `json:"executiveName"`
 	LeadFirstName string    `json:"leadFirstName"`
 	CanChange     bool      `json:"canChange"` // false once the visit has started or is closed
+	OptedOut      bool      `json:"optedOut"`  // the buyer has stopped all messages
 }
 
 // VisitDetailByCode loads a visit by its public code.
@@ -277,7 +278,7 @@ func (s *Store) VisitDetailByCode(ctx context.Context, now time.Time, code strin
 	err := s.pool.QueryRow(ctx, `
 		SELECT v.id::text, v.code, v.status, v.slot_id::text, s.starts_at, s.ends_at,
 		       p.id, p.name, p.rera_number, p.address, p.latitude, p.longitude,
-		       u.name, l.name
+		       u.name, l.name, l.opted_out
 		FROM visits v
 		JOIN visit_slots s ON s.id = v.slot_id
 		JOIN projects p ON p.id = s.project_id
@@ -286,7 +287,7 @@ func (s *Store) VisitDetailByCode(ctx context.Context, now time.Time, code strin
 		WHERE v.code = $1`, code,
 	).Scan(&d.ID, &d.Code, &d.Status, &d.SlotID, &d.StartsAt, &d.EndsAt,
 		&d.ProjectID, &d.ProjectName, &d.ReraNumber, &d.Address, &d.Latitude, &d.Longitude,
-		&d.ExecutiveName, &leadName)
+		&d.ExecutiveName, &leadName, &d.OptedOut)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return VisitDetail{}, booking.ErrVisitNotFound
 	}

@@ -39,7 +39,7 @@ const (
 const maxLookalikeCandidates = 5000
 
 // leadColumns is every column of the leads table, in the order scanLead expects.
-const leadColumns = `id::text, code, name, phone, source, project_id, wants, budget_min_lakh, budget_max_lakh,
+const leadColumns = `id::text, code, name, phone, source, project_id, wants, budget_min_lakh, budget_max_lakh, timeline,
 	language, status, consent, consent_at, opted_out, opted_out_at, assigned_to::text, first_response_at,
 	possible_duplicate_of::text, created_at, updated_at`
 
@@ -48,7 +48,7 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanLead(sc scanner, l *models.Lead) error {
 	return sc.Scan(&l.ID, &l.Code, &l.Name, &l.Phone, &l.Source, &l.ProjectID, &l.Wants, &l.BudgetMinLakh,
-		&l.BudgetMaxLakh, &l.Language, &l.Status, &l.Consent, &l.ConsentAt, &l.OptedOut, &l.OptedOutAt,
+		&l.BudgetMaxLakh, &l.Timeline, &l.Language, &l.Status, &l.Consent, &l.ConsentAt, &l.OptedOut, &l.OptedOutAt,
 		&l.AssignedTo, &l.FirstResponseAt, &l.PossibleDuplicateOf, &l.CreatedAt, &l.UpdatedAt)
 }
 

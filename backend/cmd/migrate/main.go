@@ -31,8 +31,8 @@ func run() error {
 		return err
 	}
 
-	// Migrations use the DIRECT connection: schema changes can misbehave
-	// through a connection pooler.
+	// Migrations use the session-mode connection: schema changes can misbehave
+	// through the transaction pooler.
 	url := cfg.DatabaseURL
 	if url == "" {
 		url = cfg.PooledURL

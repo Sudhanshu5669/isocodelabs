@@ -8,11 +8,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"leadflow/internal/ai"
+	"leadflow/internal/ai/providers"
 	"leadflow/internal/config"
 	"leadflow/internal/httpapi"
+	"leadflow/internal/reminders"
 	"leadflow/internal/store"
 )
 
@@ -44,9 +48,43 @@ func run(logger *slog.Logger) error {
 	defer db.Close()
 	logger.Info("database connected")
 
+	// The chat assistant's model, picked by AI_PROVIDER and AI_MODEL. Without
+	// a key the chat still runs, on fixed replies that hand every buyer to a
+	// person.
+	var llm ai.ChatCompletion
+	if m, err := providers.New(cfg); err != nil {
+		logger.Warn("chat assistant running without a model", "error", err)
+	} else {
+		llm = m
+		logger.Info("chat assistant model", "provider", m.Provider(), "model", m.Model())
+	}
+
+	// background tracks work that outlives a request (handoff summaries).
+	var background sync.WaitGroup
+	defer background.Wait() // let it finish before the database pool closes
+
+	// The reminder sender runs in the background until shutdown. Deferred calls
+	// run last-in first-out, so stopWorkers (below) runs before background.Wait.
+	workerCtx, stopWorkers := context.WithCancel(ctx)
+	defer stopWorkers()
+	if cfg.RemindersOff {
+		logger.Info("reminder sender is off (REMINDERS=off)")
+	} else {
+		worker := &reminders.Worker{Store: store.New(db), Messenger: reminders.LogMessenger{}, PublicURL: cfg.PublicURL}
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			worker.Run(workerCtx)
+		}()
+		logger.Info("reminder sender started", "messenger", "mock (log only)")
+	}
+	if cfg.StaticDir != "" {
+		logger.Info("serving the web app", "dir", cfg.StaticDir)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewRouter(cfg, db),
+		Handler:           httpapi.NewRouter(cfg, db, llm, &background),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

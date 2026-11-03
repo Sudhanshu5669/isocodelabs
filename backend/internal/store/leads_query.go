@@ -187,11 +187,13 @@ type LeadDetail struct {
 	LeadRow
 	BudgetMinLakh *int               `json:"budgetMinLakh"`
 	BudgetMaxLakh *int               `json:"budgetMaxLakh"`
+	Timeline      *string            `json:"timeline"`
 	ConsentAt     *time.Time         `json:"consentAt"`
 	OptedOutAt    *time.Time         `json:"optedOutAt"`
 	DuplicateOf   *LeadRef           `json:"duplicateOf"`
 	Touches       []models.LeadTouch `json:"touches"`
 	Visit         *LeadVisit         `json:"visit"`
+	Chats         []ChatTranscript   `json:"chats"` // AI chat history, newest first
 }
 
 // GetLead loads one lead, if the viewer is allowed to see it.
@@ -202,11 +204,11 @@ func (s *Store) GetLead(ctx context.Context, v Viewer, id string) (LeadDetail, e
 	var d LeadDetail
 	var dupID, dupName *string
 	err := scanLeadRow(s.pool.QueryRow(ctx, `
-		SELECT `+leadRowColumns+`, l.budget_min_lakh, l.budget_max_lakh, l.consent_at, l.opted_out_at,
+		SELECT `+leadRowColumns+`, l.budget_min_lakh, l.budget_max_lakh, l.timeline, l.consent_at, l.opted_out_at,
 		       l.possible_duplicate_of::text, d.name
 		`+leadRowFrom+`
 		WHERE l.id = $1::uuid AND ($2::boolean OR l.assigned_to = $3::uuid)`, id, v.IsHead, v.ID),
-		&d.LeadRow, &d.BudgetMinLakh, &d.BudgetMaxLakh, &d.ConsentAt, &d.OptedOutAt, &dupID, &dupName)
+		&d.LeadRow, &d.BudgetMinLakh, &d.BudgetMaxLakh, &d.Timeline, &d.ConsentAt, &d.OptedOutAt, &dupID, &dupName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return LeadDetail{}, leads.ErrNotFound
 	}
@@ -221,6 +223,9 @@ func (s *Store) GetLead(ctx context.Context, v Viewer, id string) (LeadDetail, e
 		return LeadDetail{}, err
 	}
 	if d.Visit, err = s.leadVisit(ctx, id); err != nil {
+		return LeadDetail{}, err
+	}
+	if d.Chats, err = s.LeadChats(ctx, id); err != nil {
 		return LeadDetail{}, err
 	}
 	return d, nil

@@ -35,7 +35,7 @@ func NamesSimilar(a, b string) bool {
 	if longest < 5 { // too short to judge by edit distance
 		return false
 	}
-	return editDistance([]rune(sa), []rune(sb))*100/longest <= 15
+	return EditDistance([]rune(sa), []rune(sb))*100/longest <= 15
 }
 
 // tokens lower-cases a name and splits it into words, dropping punctuation.
@@ -53,9 +53,9 @@ func sortedJoin(words []string) string {
 	return strings.Join(c, " ")
 }
 
-// editDistance is the number of single-letter inserts, deletes or changes that
+// EditDistance is the number of single-letter inserts, deletes or changes that
 // turn a into b (the Levenshtein distance), computed one row at a time.
-func editDistance(a, b []rune) int {
+func EditDistance(a, b []rune) int {
 	prev := make([]int, len(b)+1)
 	for j := range prev {
 		prev[j] = j
