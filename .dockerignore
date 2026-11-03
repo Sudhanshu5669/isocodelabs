@@ -1,0 +1,10 @@
+# Keep secrets and bulky local folders out of the image build.
+**/.env
+**/.env.*
+!**/.env.example
+.git
+**/node_modules
+frontend/dist
+backend/bin
+*.log
+*.exe
