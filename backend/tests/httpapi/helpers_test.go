@@ -1,15 +1,17 @@
-package httpapi
+package httpapi_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"leadflow/internal/httpapi"
 )
 
 func TestSameOrigin(t *testing.T) {
 	allowed := []string{"http://localhost:5173"}
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	handler := sameOrigin(allowed)(ok)
+	handler := httpapi.SameOrigin(allowed)(ok)
 
 	tests := []struct {
 		name   string
@@ -42,18 +44,19 @@ func TestSameOrigin(t *testing.T) {
 func TestLoginRequestValidation(t *testing.T) {
 	tests := []struct {
 		name string
-		req  loginRequest
+		req  httpapi.LoginRequest
 		ok   bool
 	}{
-		{"valid", loginRequest{Email: "a@b.co", Password: "secret"}, true},
-		{"empty email", loginRequest{Email: "", Password: "secret"}, false},
-		{"not an email", loginRequest{Email: "nope", Password: "secret"}, false},
-		{"empty password", loginRequest{Email: "a@b.co", Password: ""}, false},
-		{"password longer than bcrypt allows", loginRequest{Email: "a@b.co", Password: string(make([]byte, 73))}, false},
+		{"valid", httpapi.LoginRequest{Email: "a@b.co", Password: "secret"}, true},
+		{"empty email", httpapi.LoginRequest{Email: "", Password: "secret"}, false},
+		{"not an email", httpapi.LoginRequest{Email: "nope", Password: "secret"}, false},
+		{"display-name form", httpapi.LoginRequest{Email: "Bob <bob@x.co>", Password: "secret"}, false},
+		{"empty password", httpapi.LoginRequest{Email: "a@b.co", Password: ""}, false},
+		{"password longer than bcrypt allows", httpapi.LoginRequest{Email: "a@b.co", Password: string(make([]byte, 73))}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.req.validate() == ""; got != tc.ok {
+			if got := tc.req.Validate() == ""; got != tc.ok {
 				t.Errorf("validate ok = %v, want %v", got, tc.ok)
 			}
 		})

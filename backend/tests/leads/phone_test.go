@@ -1,6 +1,10 @@
-package leads
+package leads_test
 
-import "testing"
+import (
+	"testing"
+
+	"leadflow/internal/leads"
+)
 
 func TestNormalizePhone(t *testing.T) {
 	tests := []struct {
@@ -31,7 +35,7 @@ func TestNormalizePhone(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := NormalizePhone(tc.in)
+			got, err := leads.NormalizePhone(tc.in)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatalf("NormalizePhone(%q) = %q, want an error", tc.in, got)
@@ -51,9 +55,9 @@ func TestNormalizePhone(t *testing.T) {
 // Every way of writing one number must give the same key.
 func TestNormalizePhoneIsStableAcrossFormats(t *testing.T) {
 	forms := []string{"9825012345", "+91 98250 12345", "0091 98250 12345", "09825012345"}
-	first, _ := NormalizePhone(forms[0])
+	first, _ := leads.NormalizePhone(forms[0])
 	for _, f := range forms {
-		got, err := NormalizePhone(f)
+		got, err := leads.NormalizePhone(f)
 		if err != nil || got != first {
 			t.Errorf("NormalizePhone(%q) = %q, %v; want %q", f, got, err, first)
 		}

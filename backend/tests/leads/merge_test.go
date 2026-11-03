@@ -1,9 +1,10 @@
-package leads
+package leads_test
 
 import (
 	"testing"
 	"time"
 
+	"leadflow/internal/leads"
 	"leadflow/internal/models"
 )
 
@@ -17,7 +18,7 @@ func TestMergeFillsGapsAndKeepsIdentity(t *testing.T) {
 		BudgetMinLakh: ptr(95), BudgetMaxLakh: ptr(120), AssignedTo: ptr("exec-1"),
 	}
 
-	got := Merge(keep, drop)
+	got := leads.Merge(keep, drop)
 
 	if got.ID != "keep" || got.Code != "LD-1" || got.Phone != "+919825012345" || got.Source != "website" {
 		t.Errorf("identity changed: %+v", got)
@@ -34,7 +35,7 @@ func TestMergeKeepsExistingValues(t *testing.T) {
 	keep := models.Lead{Wants: ptr("2 BHK"), AssignedTo: ptr("exec-1")}
 	drop := models.Lead{Wants: ptr("3 BHK"), AssignedTo: ptr("exec-2")}
 
-	got := Merge(keep, drop)
+	got := leads.Merge(keep, drop)
 	if *got.Wants != "2 BHK" || *got.AssignedTo != "exec-1" {
 		t.Errorf("the kept lead's values should win: %+v", got)
 	}
@@ -56,7 +57,7 @@ func TestMergeConsentAndOptOut(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Merge(tc.keep, tc.drop)
+			got := leads.Merge(tc.keep, tc.drop)
 			if got.Consent != tc.wantConsent || got.OptedOut != tc.wantOO {
 				t.Errorf("Consent=%v OptedOut=%v, want %v %v", got.Consent, got.OptedOut, tc.wantConsent, tc.wantOO)
 			}
@@ -68,11 +69,11 @@ func TestMergeKeepsEarliestTimes(t *testing.T) {
 	early := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	late := early.Add(3 * time.Hour)
 
-	got := Merge(models.Lead{FirstResponseAt: &late}, models.Lead{FirstResponseAt: &early})
+	got := leads.Merge(models.Lead{FirstResponseAt: &late}, models.Lead{FirstResponseAt: &early})
 	if !got.FirstResponseAt.Equal(early) {
 		t.Errorf("FirstResponseAt = %v, want the earlier %v", got.FirstResponseAt, early)
 	}
-	got = Merge(models.Lead{}, models.Lead{FirstResponseAt: &late})
+	got = leads.Merge(models.Lead{}, models.Lead{FirstResponseAt: &late})
 	if got.FirstResponseAt == nil || !got.FirstResponseAt.Equal(late) {
 		t.Errorf("FirstResponseAt should be filled from the duplicate, got %v", got.FirstResponseAt)
 	}
@@ -88,7 +89,7 @@ func TestMergeStatus(t *testing.T) {
 		{models.LeadEngaged, models.LeadEngaged, models.LeadEngaged},
 	}
 	for _, tc := range tests {
-		got := Merge(models.Lead{Status: tc.keep}, models.Lead{Status: tc.drop})
+		got := leads.Merge(models.Lead{Status: tc.keep}, models.Lead{Status: tc.drop})
 		if got.Status != tc.want {
 			t.Errorf("Merge(%s, %s).Status = %s, want %s", tc.keep, tc.drop, got.Status, tc.want)
 		}

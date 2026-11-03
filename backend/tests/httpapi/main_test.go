@@ -1,4 +1,4 @@
-package httpapi
+package httpapi_test
 
 import (
 	"bytes"
@@ -6,19 +6,23 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"leadflow/internal/ai"
 	"leadflow/internal/auth"
 	"leadflow/internal/config"
-	"leadflow/internal/testdb"
+	"leadflow/internal/httpapi"
+	"leadflow/tests/testdb"
 )
 
 // Integration tests for the HTTP layer, run against a throw-away schema in a
@@ -27,7 +31,35 @@ import (
 var (
 	testPool *pgxpool.Pool
 	handler  http.Handler
+
+	model      = &fakeModel{} // the chat's language model, scripted per test
+	background sync.WaitGroup // background work (handoff summaries) to wait for
 )
+
+// fakeModel stands in for the real AI provider. Each test sets fn to script the replies.
+type fakeModel struct {
+	mu sync.Mutex
+	fn func(req ai.Request) (ai.Turn, error)
+}
+
+func (f *fakeModel) Provider() string { return "fake" }
+func (f *fakeModel) Model() string    { return "test" }
+
+func (f *fakeModel) Complete(_ context.Context, req ai.Request) (ai.Turn, error) {
+	f.mu.Lock()
+	fn := f.fn
+	f.mu.Unlock()
+	if fn == nil {
+		return ai.Turn{}, errors.New("fake model: no script set")
+	}
+	return fn(req)
+}
+
+func (f *fakeModel) script(fn func(req ai.Request) (ai.Turn, error)) {
+	f.mu.Lock()
+	f.fn = fn
+	f.mu.Unlock()
+}
 
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
@@ -40,13 +72,17 @@ func runTests(m *testing.M) int {
 	}
 	pool, cleanup, err := testdb.Open(context.Background(), "../../.env")
 	defer cleanup()
+	defer background.Wait() // runs first: let summaries finish before the schema is dropped
 	if err != nil {
 		fmt.Println("integration tests disabled:", err)
+		if testdb.Required() {
+			return 1
+		}
 		return m.Run()
 	}
 	if pool != nil {
 		testPool = pool
-		handler = NewRouter(config.Config{AppEnv: "development"}, pool)
+		handler = httpapi.NewRouter(config.Config{AppEnv: "development"}, pool, model, &background)
 	}
 	return m.Run()
 }
@@ -110,7 +146,8 @@ func newStaff(t *testing.T, role string) (id string, cookie *http.Cookie) {
 
 func newLead(t *testing.T, assignedTo string) (id, phone string) {
 	t.Helper()
-	phone = "+91" + fmt.Sprintf("%010d", time.Now().UnixNano()%10000000000)
+	// Always a valid Indian mobile (starts with 9), so code that checks numbers accepts it.
+	phone = "+919" + fmt.Sprintf("%09d", time.Now().UnixNano()%1000000000)
 	var assigned any
 	if assignedTo != "" {
 		assigned = assignedTo
@@ -125,6 +162,19 @@ func newLead(t *testing.T, assignedTo string) (id, phone string) {
 }
 
 var slotCounter = 0
+
+// newSlotAt creates an open one-hour slot for an executive at a given start.
+func newSlotAt(t *testing.T, execID string, start time.Time) string {
+	t.Helper()
+	var id string
+	err := testPool.QueryRow(context.Background(), `
+		INSERT INTO visit_slots (project_id, executive_id, starts_at, ends_at)
+		VALUES ('project-1', $1::uuid, $2, $3) RETURNING id::text`, execID, start, start.Add(time.Hour)).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
 
 // newSlot creates an open slot for an executive, days ahead, and returns its id.
 func newSlot(t *testing.T, execID string) string {

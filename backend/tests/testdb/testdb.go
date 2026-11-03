@@ -1,11 +1,16 @@
 // Package testdb gives integration tests a real, empty Postgres database to use.
 //
 // The guarantees we test (row locks, unique indexes, transactions) only exist in
-// a real database, so tests run against Neon. To keep the sample data safe, each
+// a real database, so tests run against Supabase Postgres. To keep the sample data safe, each
 // test run creates a throw-away schema, applies the real migrations into it, and
 // drops it afterwards. Nothing in the real tables is ever touched.
 //
-// Tests need DATABASE_URL (a direct, non-pooled connection). Without it Open
+// A run without a database is easy to mistake for a passing one, so Open prints
+// a loud banner when it skips, and with LEADFLOW_REQUIRE_DB=1 (use it in CI)
+// a missing or broken database fails the run instead.
+//
+// Tests need DATABASE_URL (the session-mode connection, port 5432, not the
+// transaction pooler). Without it Open
 // returns a nil pool and tests skip themselves.
 package testdb
 
@@ -27,6 +32,9 @@ import (
 	"leadflow/migrations"
 )
 
+// Required reports whether integration tests must run (LEADFLOW_REQUIRE_DB=1).
+func Required() bool { return os.Getenv("LEADFLOW_REQUIRE_DB") == "1" }
+
 // Open prepares an isolated schema and returns a pool that can only see it.
 // The returned cleanup function drops the schema; always call it.
 // A nil pool with a nil error means "no database configured, skip the tests".
@@ -36,10 +44,21 @@ func Open(ctx context.Context, envFile string) (pool *pgxpool.Pool, cleanup func
 	_ = godotenv.Load(envFile)
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
+		if Required() {
+			return nil, noop, errors.New("LEADFLOW_REQUIRE_DB is set but DATABASE_URL is empty")
+		}
+		fmt.Fprintln(os.Stderr, "*** SKIPPING DATABASE INTEGRATION TESTS: DATABASE_URL is not set. Only unit tests ran. ***")
 		return nil, noop, nil
 	}
 
-	admin, err := pgxpool.New(ctx, url)
+	// Supabase's session pooler allows only 15 clients in total, and go test
+	// runs packages in parallel, so every pool here is kept deliberately small.
+	adminCfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, noop, err
+	}
+	adminCfg.MaxConns = 1 // only creates and drops the schema
+	admin, err := pgxpool.NewWithConfig(ctx, adminCfg)
 	if err != nil {
 		return nil, noop, err
 	}
@@ -53,13 +72,9 @@ func Open(ctx context.Context, envFile string) (pool *pgxpool.Pool, cleanup func
 	}
 
 	var testPool *pgxpool.Pool
-	var db *sql.DB
 	cleanup = func() {
 		if testPool != nil {
 			testPool.Close()
-		}
-		if db != nil {
-			db.Close()
 		}
 		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
 		admin.Close()
@@ -74,21 +89,26 @@ func Open(ctx context.Context, envFile string) (pool *pgxpool.Pool, cleanup func
 	// Only the throw-away schema is on the path, so no statement in a test can
 	// ever resolve to the real tables in "public".
 	//
-	// Neon silently ignores search_path as a connection startup parameter, so we
-	// SET it right after every new connection instead.
+	// Connection poolers do not reliably pass search_path through as a startup
+	// parameter, so we SET it right after every new connection instead.
 	setPath := func(ctx context.Context, c *pgx.Conn) error {
 		_, err := c.Exec(ctx, "SET search_path TO "+schema)
 		return err
 	}
 	cfg.AfterConnect = setPath
-	cfg.MaxConns = 25
+	// Concurrency tests (many buyers, one slot) still race properly with a
+	// small pool: extra goroutines wait for a free connection, and the race
+	// happens inside Postgres on the connections that are open.
+	cfg.MaxConns = 5
 
 	if testPool, err = pgxpool.NewWithConfig(ctx, cfg); err != nil {
 		cleanup()
 		return nil, noop, err
 	}
 
-	db = stdlib.OpenDB(*cfg.ConnConfig, stdlib.OptionAfterConnect(setPath))
+	var db *sql.DB = stdlib.OpenDB(*cfg.ConnConfig, stdlib.OptionAfterConnect(setPath))
+	db.SetMaxOpenConns(1)
+	defer db.Close() // only needed for the migration below
 	goose.SetBaseFS(migrations.FS)
 	_ = goose.SetDialect("postgres")
 	goose.SetLogger(goose.NopLogger())

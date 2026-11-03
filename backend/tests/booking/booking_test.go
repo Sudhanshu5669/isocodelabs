@@ -1,15 +1,16 @@
-package booking
+package booking_test
 
 import (
 	"errors"
 	"testing"
 	"time"
 
+	"leadflow/internal/booking"
 	"leadflow/internal/models"
 )
 
 func TestPlanReminders(t *testing.T) {
-	now := time.Date(2026, 11, 2, 12, 0, 0, 0, IST)
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, booking.IST)
 
 	tests := []struct {
 		name       string
@@ -28,7 +29,7 @@ func TestPlanReminders(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plans := PlanReminders(now, tc.start, tc.canContact)
+			plans := booking.PlanReminders(now, tc.start, tc.canContact)
 			if len(plans) != 2 {
 				t.Fatalf("want 2 reminders, got %d", len(plans))
 			}
@@ -52,7 +53,7 @@ func TestPlanReminders(t *testing.T) {
 }
 
 func TestValidateSlotTimes(t *testing.T) {
-	now := time.Date(2026, 11, 2, 12, 0, 0, 0, IST)
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, booking.IST)
 	start := now.Add(48 * time.Hour)
 
 	tests := []struct {
@@ -68,11 +69,11 @@ func TestValidateSlotTimes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateSlotTimes(now, tc.start, tc.end)
+			err := booking.ValidateSlotTimes(now, tc.start, tc.end)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("err = %v, wantErr %v", err, tc.wantErr)
 			}
-			if err != nil && !errors.Is(err, ErrInvalidSlotTimes) {
+			if err != nil && !errors.Is(err, booking.ErrInvalidSlotTimes) {
 				t.Errorf("unexpected error type: %v", err)
 			}
 		})
@@ -82,7 +83,7 @@ func TestValidateSlotTimes(t *testing.T) {
 func TestVisitCodesAreUniqueAndLongEnough(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 1000; i++ {
-		c, err := NewVisitCode()
+		c, err := booking.NewVisitCode()
 		if err != nil {
 			t.Fatal(err)
 		}

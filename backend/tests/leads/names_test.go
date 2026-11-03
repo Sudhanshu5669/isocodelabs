@@ -1,6 +1,10 @@
-package leads
+package leads_test
 
-import "testing"
+import (
+	"testing"
+
+	"leadflow/internal/leads"
+)
 
 func TestNamesSimilar(t *testing.T) {
 	tests := []struct {
@@ -25,10 +29,10 @@ func TestNamesSimilar(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.a+" | "+tc.b, func(t *testing.T) {
-			if got := NamesSimilar(tc.a, tc.b); got != tc.want {
+			if got := leads.NamesSimilar(tc.a, tc.b); got != tc.want {
 				t.Fatalf("NamesSimilar(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 			}
-			if got := NamesSimilar(tc.b, tc.a); got != tc.want {
+			if got := leads.NamesSimilar(tc.b, tc.a); got != tc.want {
 				t.Fatalf("NamesSimilar is not symmetric for %q, %q", tc.a, tc.b)
 			}
 		})
@@ -47,8 +51,8 @@ func TestEditDistance(t *testing.T) {
 		{"patel", "patil", 1},
 	}
 	for _, tc := range tests {
-		if got := editDistance([]rune(tc.a), []rune(tc.b)); got != tc.want {
-			t.Errorf("editDistance(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		if got := leads.EditDistance([]rune(tc.a), []rune(tc.b)); got != tc.want {
+			t.Errorf("EditDistance(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
 	}
 }

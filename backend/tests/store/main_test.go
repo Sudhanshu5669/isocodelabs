@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadflow/internal/store"
-	"leadflow/internal/testdb"
+	"leadflow/tests/testdb"
 )
 
 // Integration tests run against a real Postgres in a throw-away schema. See
@@ -38,6 +38,9 @@ func runTests(m *testing.M) int {
 	defer cleanup()
 	if err != nil {
 		fmt.Println("integration tests disabled:", err)
+		if testdb.Required() {
+			return 1
+		}
 		return m.Run()
 	}
 	if pool != nil {
