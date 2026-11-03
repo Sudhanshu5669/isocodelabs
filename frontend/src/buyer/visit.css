@@ -1,0 +1,30 @@
+.visit {
+  max-width: 640px;
+}
+.visit h1 {
+  margin-top: 10px;
+  font-size: clamp(32px, 4vw, 42px);
+  line-height: 1.08;
+}
+.visit-pass {
+  margin: 28px 0 24px;
+}
+.visit-actions {
+  margin-top: 16px;
+}
+.visit-actions .panel {
+  margin-top: 0;
+}
+.visit-messages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.visit .alert {
+  margin-bottom: 16px;
+}
