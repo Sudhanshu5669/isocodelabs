@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 )
 
@@ -17,8 +19,10 @@ func UserFromContext(ctx context.Context) (User, bool) {
 }
 
 // Authenticate reads the session cookie and, if it is valid, stores the user in
-// the request context. It never blocks a request by itself; RequireAuth and
-// RequireRole decide that.
+// the request context. A missing, unknown or expired session just means "not
+// signed in": RequireAuth and RequireRole decide what that allows. A DATABASE
+// error is different: the request fails (500) instead of quietly looking
+// signed out, so an outage is visible rather than disguised.
 //
 // Go lesson: middleware is a function that takes a handler and returns a new
 // handler that does something before or after calling the original.
@@ -26,8 +30,14 @@ func Authenticate(store SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if c, err := r.Cookie(CookieName); err == nil && c.Value != "" {
-				if u, err := store.UserBySession(r.Context(), HashToken(c.Value)); err == nil {
+				u, err := store.UserBySession(r.Context(), HashToken(c.Value))
+				switch {
+				case err == nil:
 					r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, u))
+				case !errors.Is(err, ErrNoSession):
+					slog.Error("session lookup failed", "error", err)
+					writeError(w, http.StatusInternalServerError, "Something went wrong. Please try again.")
+					return
 				}
 			}
 			next.ServeHTTP(w, r)

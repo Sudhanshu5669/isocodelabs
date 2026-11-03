@@ -7,6 +7,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -16,16 +17,45 @@ import (
 // Config holds every setting the server needs. A struct is Go's way of
 // grouping related values, similar to an object or a class without methods.
 type Config struct {
-	Port         string // HTTP port the server listens on
-	DatabaseURL  string // direct Neon connection (used for migrations and seeding)
-	PooledURL    string // pooled Neon connection (used by the running app)
-	GeminiAPIKey string // Google Gemini API key for the chat assistant
-	AppEnv       string // "development" or "production"
+	Port        string // HTTP port the server listens on
+	DatabaseURL string // Supabase session-mode connection (used for migrations, seeding and tests)
+	PooledURL   string // Supabase transaction-mode pooler (used by the running app)
+	AppEnv      string // "development" or "production" (the default)
+
+	// The AI model behind the chat assistant. AI_PROVIDER alone decides which
+	// company is used (see internal/ai/providers); AI_MODEL picks the model,
+	// empty meaning that provider's default.
+	AIProvider    string // "gemini" (the default), "openai" or "offline"
+	AIModel       string
+	GeminiAPIKey  string
+	OpenAIAPIKey  string
+	OpenAIBaseURL string // empty means OpenAI itself; set it for an OpenAI-compatible API
+
+	// TrustedProxyHeader names the ONE header the hosting platform's proxy sets
+	// to the real client IP (e.g. "Fly-Client-IP"). Empty means no proxy: the
+	// connection's own address is used and every forwarding header is ignored.
+	TrustedProxyHeader string
 
 	// AllowedOrigins lists extra browser origins that may send state-changing
 	// requests. Needed in development, where the React dev server runs on its
 	// own port. Empty in production, where one server serves everything.
 	AllowedOrigins []string
+
+	// PublicURL is where buyers reach the site, e.g. https://visits.example.com.
+	// Reminder messages use it to link to the buyer's visit page. Optional.
+	PublicURL string
+
+	// StaticDir is the folder holding the built React app (frontend/dist).
+	// When set, the server serves the whole site; empty means API only.
+	StaticDir string
+
+	// InboundWebhookSecret protects the endpoint the messaging provider calls
+	// with buyer replies (e.g. "STOP"). Empty switches the endpoint off.
+	InboundWebhookSecret string
+
+	// RemindersOff stops the background reminder sender (REMINDERS=off), for
+	// example on a second server that should only answer requests.
+	RemindersOff bool
 }
 
 // Load reads the .env file (if there is one) and then the real environment.
@@ -39,11 +69,35 @@ func Load() (Config, error) {
 	_ = godotenv.Load()
 
 	cfg := Config{
-		Port:         getenv("PORT", "8080"),
-		DatabaseURL:  os.Getenv("DATABASE_URL"),
-		PooledURL:    os.Getenv("DATABASE_URL_POOLED"),
-		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
-		AppEnv:       getenv("APP_ENV", "development"),
+		Port:        getenv("PORT", "8080"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		PooledURL:   os.Getenv("DATABASE_URL_POOLED"),
+
+		AIProvider:    strings.ToLower(getenv("AI_PROVIDER", "gemini")),
+		AIModel:       strings.TrimSpace(os.Getenv("AI_MODEL")),
+		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
+		OpenAIAPIKey:  os.Getenv("OPENAI_API_KEY"),
+		OpenAIBaseURL: os.Getenv("OPENAI_BASE_URL"),
+
+		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"),
+		StaticDir:            strings.TrimSpace(os.Getenv("STATIC_DIR")),
+		InboundWebhookSecret: os.Getenv("INBOUND_WEBHOOK_SECRET"),
+		RemindersOff:         strings.EqualFold(os.Getenv("REMINDERS"), "off"),
+
+		TrustedProxyHeader: strings.TrimSpace(os.Getenv("TRUSTED_PROXY_HEADER")),
+		// Unset means production: forgetting the variable must never switch
+		// security off. Local development sets APP_ENV=development on purpose.
+		AppEnv: getenv("APP_ENV", "production"),
+	}
+
+	if cfg.AppEnv != "development" && cfg.AppEnv != "production" {
+		return Config{}, fmt.Errorf("config: APP_ENV must be development or production, not %q", cfg.AppEnv)
+	}
+
+	switch cfg.AIProvider {
+	case "gemini", "openai", "offline":
+	default:
+		return Config{}, fmt.Errorf("config: AI_PROVIDER must be gemini, openai or offline, not %q", cfg.AIProvider)
 	}
 
 	defaultOrigins := ""
@@ -60,6 +114,12 @@ func Load() (Config, error) {
 		return Config{}, errors.New("config: set DATABASE_URL or DATABASE_URL_POOLED")
 	}
 	return cfg, nil
+}
+
+// SecureCookies reports whether cookies get the Secure flag (HTTPS only). It
+// is on everywhere except an explicit local development setup.
+func (c Config) SecureCookies() bool {
+	return c.AppEnv != "development"
 }
 
 // RuntimeDBURL is the connection string the running app should use.

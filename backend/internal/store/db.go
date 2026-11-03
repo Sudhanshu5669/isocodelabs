@@ -6,24 +6,40 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Connect opens a connection pool to Postgres.
+// supabaseTxPoolerPort is the port of Supabase's transaction-mode pooler.
+const supabaseTxPoolerPort = 6543
+
+// Connect opens a connection pool to Postgres (Supabase).
 //
 // Go lesson: context.Context carries deadlines and cancellation through a call
 // chain. Almost every function that does I/O (database, network) takes one as
 // its first argument so it can be stopped if the caller gives up.
 //
-// Neon's free databases go to sleep when idle, so the first connection after a
-// pause can fail or be slow. We retry a few times with a growing delay.
+// The Supabase pooler can drop or refuse a connection for a moment (for example
+// while a paused free project wakes up), so we retry a few times with a growing delay.
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	var lastErr error
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("store: bad database URL: %w", err)
+	}
 
+	// The transaction pooler hands each transaction to whichever server
+	// connection is free, so a prepared statement made on one may not exist on
+	// the next. The simple protocol sends every query as plain text and never
+	// prepares statements, which is what the pooler needs.
+	if cfg.ConnConfig.Port == supabaseTxPoolerPort {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	}
+
+	var lastErr error
 	for attempt := 1; attempt <= 4; attempt++ {
-		pool, err := pgxpool.New(ctx, url)
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err == nil {
-			// pgxpool.New is lazy, so Ping makes sure we can really reach the DB.
+			// The pool is lazy, so Ping makes sure we can really reach the DB.
 			pingCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			err = pool.Ping(pingCtx)
 			cancel()

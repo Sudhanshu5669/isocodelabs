@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -76,9 +77,19 @@ func CheckPassword(hash, password string) bool {
 // dummyHash is compared against when the email does not exist, so a failed
 // login takes about the same time either way. That stops attackers from
 // discovering which emails are registered by timing the response.
-var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
+//
+// It is made on first use (sync.OnceValue), not when the program starts, so
+// commands that never log anyone in do not pay for a bcrypt hash. It uses the
+// same cost as real hashes; a different cost would take a different time.
+var dummyHash = sync.OnceValue(func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("auth: cannot create dummy hash: " + err.Error()) // only if the system's randomness fails
+	}
+	return h
+})
 
 // DummyCheck burns the same time as a real password check.
 func DummyCheck(password string) {
-	_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+	_ = bcrypt.CompareHashAndPassword(dummyHash(), []byte(password))
 }
