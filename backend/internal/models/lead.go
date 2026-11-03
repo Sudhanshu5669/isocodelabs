@@ -20,6 +20,15 @@ const (
 	LeadLost        = "lost"
 )
 
+// When the buyer plans to buy (leads.timeline), asked by the chat assistant.
+const (
+	TimelineWithin3Months = "within_3_months"
+	Timeline3To6Months    = "3_to_6_months"
+	Timeline6To12Months   = "6_to_12_months"
+	TimelineOver12Months  = "over_12_months"
+	TimelineExploring     = "exploring"
+)
+
 // Languages the assistant speaks (leads.language, conversations.language).
 const (
 	LangEnglish  = "en"
@@ -38,8 +47,9 @@ type Lead struct {
 	ProjectID *string `db:"project_id" json:"projectId"`
 	Wants     *string `db:"wants" json:"wants"` // "2 BHK" or "3 BHK"
 
-	BudgetMinLakh *int `db:"budget_min_lakh" json:"budgetMinLakh"`
-	BudgetMaxLakh *int `db:"budget_max_lakh" json:"budgetMaxLakh"`
+	BudgetMinLakh *int    `db:"budget_min_lakh" json:"budgetMinLakh"`
+	BudgetMaxLakh *int    `db:"budget_max_lakh" json:"budgetMaxLakh"`
+	Timeline      *string `db:"timeline" json:"timeline"` // one of the Timeline* values
 
 	Language string `db:"language" json:"language"`
 	Status   string `db:"status" json:"status"`
