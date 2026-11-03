@@ -1,0 +1,62 @@
+.slots {
+  display: grid;
+  gap: 14px;
+}
+.slots-day-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.slots-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 112px;
+  min-height: 56px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.slot:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.slot:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.slot[aria-busy='true'] {
+  opacity: 1;
+  border-color: var(--accent);
+}
+.slot-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.slot-time .spinner {
+  width: 13px;
+  height: 13px;
+}
+.slot-who {
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .slot {
+    transition: none;
+  }
+}

@@ -1,0 +1,102 @@
+/* The visit pass. Two notches cut into the card at the tear line (made with
+   radial gradients) separate the pass from its RERA stub. */
+.pass {
+  --notch: 10px;
+  max-width: 420px;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 0 calc(100% - 52px), transparent var(--notch), var(--surface) calc(var(--notch) + 0.5px))
+      left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% calc(100% - 52px), transparent var(--notch), var(--surface) calc(var(--notch) + 0.5px))
+      right / 51% 100% no-repeat;
+  filter: drop-shadow(0 1px 1px rgba(28, 35, 33, 0.08)) drop-shadow(0 8px 24px rgba(28, 35, 33, 0.07));
+  color: var(--ink);
+}
+.pass-main {
+  padding: 24px 24px 20px;
+}
+.pass-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.pass-void-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--danger-soft);
+  color: var(--danger);
+  letter-spacing: 0.04em;
+}
+.pass-day {
+  margin-top: 14px;
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+.pass-time {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.pass-rows {
+  margin: 20px 0 0;
+  display: grid;
+  gap: 12px;
+}
+.pass-rows div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  font-size: 14px;
+}
+.pass-rows dt {
+  color: var(--muted);
+}
+.pass-rows dd {
+  margin: 0;
+  font-weight: 500;
+}
+.pass-rows a {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 600;
+}
+.pass-stub {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 24px;
+  border-top: 1.5px dashed var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.pass-rera {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.pass-void .pass-day,
+.pass-void .pass-time {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--muted);
+}
+@media (max-width: 420px) {
+  .pass-day {
+    font-size: 28px;
+  }
+  .pass-rows div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

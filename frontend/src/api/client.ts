@@ -11,6 +11,16 @@ export class ApiError extends Error {
   }
 }
 
+// Called whenever the server says the session is gone (401) on a call that
+// needed one, for example after the 12-hour session expires. AuthProvider
+// registers a handler that clears the signed-in user, so the app shows the
+// login screen instead of a page full of errors.
+let onUnauthorized: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
 type Options = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
@@ -38,6 +48,10 @@ export async function api<T>(path: string, { method = 'GET', body, signal }: Opt
 
   const data: unknown = await res.json().catch(() => null)
   if (!res.ok) {
+    // A 401 from the login form just means a wrong password, not an expired session.
+    if (res.status === 401 && path !== '/auth/login') {
+      onUnauthorized?.()
+    }
     const message =
       data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
         ? data.error
