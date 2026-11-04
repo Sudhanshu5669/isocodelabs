@@ -11,12 +11,14 @@ import (
 	"errors"
 	"fmt"
 	mrand "math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadflow/internal/auth"
+	"leadflow/internal/reminders"
 )
 
 // Options controls a seed run.
@@ -47,7 +49,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opt Options) error {
 
 	if opt.Reset {
 		_, err := tx.Exec(ctx, `
-			TRUNCATE source_spend, reminders, visits, visit_slots, messages, conversations,
+			TRUNCATE units, source_spend, reminders, visits, visit_slots, messages, conversations,
 			         lead_touches, leads, fact_sheet_entries, projects, sessions, users CASCADE;
 			ALTER SEQUENCE lead_code_seq RESTART WITH 60000;`)
 		if err != nil {
@@ -67,7 +69,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opt Options) error {
 		return err
 	}
 
-	steps := []func(){s.users, s.projectsAndFacts, s.futureSlots, s.leads, s.visits, s.spend}
+	steps := []func(){s.users, s.projectsAndFacts, s.units, s.futureSlots, s.leads, s.scenarios, s.visits, s.spend}
 	for _, step := range steps {
 		step()
 		if s.err != nil {
@@ -81,6 +83,7 @@ type exec struct{ id, name, email string }
 
 type leadRow struct {
 	id, code, name, source, project, wants string
+	lang                                   string
 	created                                time.Time
 	responded, consent, optedOut           bool
 	isGiven                                bool
@@ -111,6 +114,8 @@ type seeder struct {
 	reraOf  map[string]string
 	nameOf  map[string]string
 	visitOf map[string]bool
+
+	scenarioPhone int // numbering for the hand-made scenario leads (scenarios.go)
 }
 
 func (s *seeder) exec(sql string, args ...any) {
@@ -306,6 +311,7 @@ func (s *seeder) leads() {
 		r := &rows[i]
 		phone := fmt.Sprintf("+9190000%05d", 10000+i*37) // obviously fake test numbers
 		lang := s.pick("en", "en", "en", "hi", "hi", "gu")
+		r.lang = lang
 
 		var firstResp *time.Time
 		if r.responded {
@@ -368,10 +374,11 @@ func (s *seeder) leads() {
 		// its first source and the repeat enquiry is recorded as a touch.
 		if !r.isGiven && s.rng.IntN(100) < 8 {
 			other := s.pick("website", "social_ad", "property_portal")
-			if other != r.source {
+			again := r.created.Add(time.Duration(1+s.rng.IntN(5)) * 24 * time.Hour)
+			if other != r.source && again.Before(s.now) { // never a repeat enquiry in the future
 				s.exec(`INSERT INTO lead_touches (lead_id, source, project_id, note, created_at)
 					VALUES ($1::uuid, $2, $3, 'Enquired again; merged by phone number', $4)`,
-					r.id, other, r.project, r.created.Add(time.Duration(1+s.rng.IntN(5))*24*time.Hour))
+					r.id, other, r.project, again)
 			}
 		}
 	}
@@ -392,6 +399,7 @@ func (s *seeder) visits() {
 	}
 
 	// The brief's three leads and their Visit Status.
+	// (scenarios.go runs first and keeps clear of these two fixed times.)
 	hardik := byCode["LD-58210"] // Booked 2026-11-01 11:00 (the time has passed, so it awaits an outcome)
 	s.pastSlotVisit(hardik, time.Date(2026, 11, 1, 11, 0, 0, 0, ist), s.execs[0].id, "booked")
 	kavita := byCode["LD-58224"] // Visited
@@ -488,19 +496,24 @@ func (s *seeder) reminders(l *leadRow, visitID string, start time.Time) {
 	for _, r := range []struct {
 		kind string
 		due  time.Time
-		when string
 	}{
-		{"day_before", start.Add(-24 * time.Hour), "tomorrow"},
-		{"two_hours_before", start.Add(-2 * time.Hour), "in about 2 hours"},
+		{"day_before", start.Add(-24 * time.Hour)},
+		{"two_hours_before", start.Add(-2 * time.Hour)},
 	} {
 		status, body, sentAt, reason := "queued", any(nil), any(nil), any(nil)
 		switch {
 		case l.optedOut || !l.consent:
 			status, reason = "skipped", "opted_out"
 		case r.due.Before(s.now):
+			// The same text the real reminder sender produces (package reminders).
 			status = "sent"
-			body = fmt.Sprintf("Reminder: your site visit to %s is %s, at %s. Location pin: shared on your booking page. RERA registration no. %s. Reply STOP to opt out.",
-				s.nameOf[l.project], r.when, start.In(ist).Format("Mon 2 Jan, 15:04"), s.reraOf[l.project])
+			body = reminders.Render(reminders.Visit{
+				Kind: r.kind, Language: langOr(l.lang), FirstName: strings.Fields(l.name)[0],
+				ProjectName: s.nameOf[l.project], ReraNumber: s.reraOf[l.project],
+				Address:       s.id(`SELECT address FROM projects WHERE id = $1`, l.project),
+				ExecutiveName: s.id(`SELECT u.name FROM visits v JOIN visit_slots sl ON sl.id = v.slot_id JOIN users u ON u.id = sl.executive_id WHERE v.id = $1::uuid`, visitID),
+				StartsAt:      start,
+			})
 			sentAt = r.due.Add(40 * time.Second)
 		}
 		s.exec(`INSERT INTO reminders (visit_id, kind, due_at, status, skip_reason, body, sent_at)
@@ -508,15 +521,26 @@ func (s *seeder) reminders(l *leadRow, visitID string, start time.Time) {
 	}
 }
 
-// spend records marketing spend at the brief's ₹1,000 per lead, per source and
-// month, so cost per visit on the dashboard is consistent with the leads we seed.
+// spend records marketing spend per source and month. The brief gives ₹1,000
+// per lead on average; the per-source rates below average out near that but
+// differ, so the dashboard's cost per visit by source has something to compare.
+// The current month is left blank for the website, to show a source with no
+// spend recorded yet.
 func (s *seeder) spend() {
 	s.exec(`
 		INSERT INTO source_spend (source, month, amount_inr)
-		SELECT source, date_trunc('month', created_at AT TIME ZONE 'Asia/Kolkata')::date, count(*) * 1000
-		FROM leads
-		WHERE source <> 'manual'
-		GROUP BY 1, 2`)
+		SELECT source, month, n * CASE source WHEN 'property_portal' THEN 1100 WHEN 'social_ad' THEN 900
+		                                      WHEN 'website' THEN 600 ELSE 1400 END
+		FROM (SELECT source, date_trunc('month', created_at AT TIME ZONE 'Asia/Kolkata')::date AS month, count(*) AS n
+		      FROM leads WHERE source <> 'manual' GROUP BY 1, 2) per_month
+		WHERE NOT (source = 'website' AND month = date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date)`)
+}
+
+func langOr(l string) string {
+	if l == "" {
+		return "en"
+	}
+	return l
 }
 
 // token returns an unguessable code for a buyer's visit link.
