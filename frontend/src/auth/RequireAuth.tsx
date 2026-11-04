@@ -7,7 +7,7 @@ import { useAuth, type Role } from './AuthContext'
 // This only controls what the screen shows. The server checks the role again on
 // every API call, so hiding a link is never the real protection.
 export function RequireAuth({ roles }: { roles?: Role[] }) {
-  const { user, loading } = useAuth()
+  const { user, loading, checkError, recheck } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -15,6 +15,17 @@ export function RequireAuth({ roles }: { roles?: Role[] }) {
       <div role="status" style={{ display: 'grid', placeItems: 'center', minHeight: '60vh', color: 'var(--muted)' }}>
         <span className="spinner" aria-hidden="true" />
         <span className="visually-hidden">Loading</span>
+      </div>
+    )
+  }
+  if (!user && checkError) {
+    return (
+      <div className="state" role="alert" style={{ minHeight: '60vh' }}>
+        <h2>We could not check your sign-in</h2>
+        <p>{checkError}</p>
+        <button className="btn btn-quiet btn-small" onClick={recheck}>
+          Try again
+        </button>
       </div>
     )
   }

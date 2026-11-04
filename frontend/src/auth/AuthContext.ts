@@ -13,6 +13,10 @@ export type AuthState = {
   user: User | null
   /** True until we know whether a session already exists. */
   loading: boolean
+  /** Set when the server could not say whether we are signed in (not a 401). */
+  checkError: string
+  /** Asks the server again after checkError. */
+  recheck: () => void
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
