@@ -1,6 +1,6 @@
 # Session handoff
 
-Read this first in a new session. It is written so someone with no memory of the earlier conversation can carry on. Last updated 2026-11-03, after Phase 3. A repo map for human readers is in `README.md`.
+Read this first in a new session. It is written so someone with no memory of the earlier conversation can carry on. Last updated 2026-11-04 (evening), after the staff UI (Phase 6) was built. Buyer UI (Phase 5) was built earlier the same day. A repo map for human readers is in `README.md`.
 
 ## 1. The assignment (brief, condensed)
 
@@ -37,11 +37,11 @@ Rules: use only the information in the problem statement and **label every assum
 |---|---|
 | Backend | Go (module `leadflow`, Go 1.27 installed), `chi`, `pgx/v5`, `goose` migrations (embedded), `bcrypt`, `x/time/rate`. Plain SQL in `internal/store`, **not sqlc** (easier to read while learning). |
 | Frontend | React 19 + Vite + TypeScript, React Router 7, plain CSS with design tokens, `three` installed (unused so far). Node 22. |
-| Database | Neon Postgres. `DATABASE_URL` = direct (migrations, seeding, tests); `DATABASE_URL_POOLED` = pooled (running app). |
-| AI | **Google Gemini** (the user supplied a Gemini key, not Claude). Plan: `google.golang.org/genai` with function calling, behind a small Go interface so tests can fake it. |
-| Deploy (plan) | Docker: Go serves the API and the built React files, one service on Fly.io or Render, Neon for the DB. Not done. |
+| Database | Supabase Postgres (moved from Neon on 2026-11-03). `DATABASE_URL` = session pooler, port 5432 (migrations, seeding, tests); `DATABASE_URL_POOLED` = transaction pooler, port 6543 (running app; `store.Connect` switches pgx to the simple protocol on port 6543 because that pooler cannot keep prepared statements). Supabase Auth and `@supabase/server` are **not** used: the Go backend keeps its own session auth. |
+| AI | Provider chosen by config: `AI_PROVIDER=gemini` (default, the user's key) or `openai`; `AI_MODEL` picks the model. All in `internal/ai/` behind the `ai.ChatCompletion` interface; plain REST calls, no SDKs. |
+| Deploy (plan) | Docker: Go serves the API and the built React files, one service on Fly.io or Render, Supabase for the DB. Not done. |
 
-Env vars in `backend/.env` (names): `DATABASE_URL`, `DATABASE_URL_POOLED`, `GEMINI_API_KEY`, optional `PORT`, `APP_ENV`, `ALLOWED_ORIGINS`, `SEED_DEMO_PASSWORD`. Frontend build flag `VITE_SHOW_DEMO_LOGINS`.
+Env vars in `backend/.env` (names): `DATABASE_URL`, `DATABASE_URL_POOLED`, `AI_PROVIDER` (gemini|openai|offline), `AI_MODEL`, `GEMINI_API_KEY`, `OPENAI_API_KEY` (not yet in the local .env), optional `OPENAI_BASE_URL`, `APP_ENV` (set to development locally; unset = production), `TRUSTED_PROXY_HEADER`, `PORT`, `ALLOWED_ORIGINS`, `SEED_DEMO_PASSWORD` (required in production). Test flags: `LEADFLOW_REQUIRE_DB=1`, `LEADFLOW_EVAL=1`, `EVAL_RPM`. Frontend build flag `VITE_SHOW_DEMO_LOGINS`.
 
 ## 4. Repository layout
 
@@ -49,6 +49,8 @@ Env vars in `backend/.env` (names): `DATABASE_URL`, `DATABASE_URL_POOLED`, `GEMI
 backend/
   cmd/{server,migrate,seed}/main.go
   internal/
+    ai/         EVERYTHING AI: completion.go (ChatCompletion interface), providers/ (Gemini, OpenAI,
+                Offline + New(cfg)), assistant/ (agent loop, tools, prompt, guardrails, scripts, evals)
     auth/       passwords, session tokens, Authenticate/RequireAuth/RequireRole
     booking/    PURE rules + error values (min notice, reminder planning, slot validation, visit codes)
     leads/      PURE rules: Input validation, phone normalising, fuzzy name match, Merge of two records
@@ -58,8 +60,14 @@ backend/
     seed/       sample-data seeder
     store/      ALL SQL: users/sessions, tx helper (retry on deadlock), booking engine,
                 leads.go (ingest + dedupe), leads_query.go (list/detail), leads_merge.go (merge/dismiss)
-    testdb/     throw-away-schema helper for integration tests (fixture: project-1 and project-2)
   migrations/   00001_init.sql + embed.go
+  tests/        EVERY test, mirroring internal/ (tests/ai/assistant, tests/ai/providers, tests/auth,
+                tests/booking, tests/httpapi, tests/leads, tests/store) + tests/testdb (throw-away-schema
+                helper; fixture project-1 and project-2). Black-box packages (`<pkg>_test`): they use only
+                exported names, so the few helpers tests need were exported (httpapi.ClientIP, NewIPLimiter,
+                LoginRequest.Validate, SameOrigin, ChatState/ChatReply/ChatCookie, MaxTrackedKeys;
+                assistant.MaxSteps; leads.EditDistance; providers.Encode*/Decode*). Evals:
+                tests/ai/assistant/testdata/evals.json.
 frontend/
   src/{api,auth,pages}, src/index.css (design tokens), public/images/rooms/*.jpg
 README.md       repo map + layering rules for human readers
@@ -67,22 +75,55 @@ deployment.md   local run steps, env var names, demo logins (deployment section 
 HANDOFF.md      this file
 ```
 
-Convention per domain: rules in a pure package, SQL in `store/<domain>*.go`, HTTP in `httpapi/<domain>_handlers.go`, tests beside each file.
+Convention per domain: rules in a pure package, SQL in `store/<domain>*.go`, HTTP in `httpapi/<domain>_handlers.go`, tests in `tests/<package>/` (the user asked for tests in a separate folder, not beside the code).
 
 ## 5. How to run
 
 ```
 cd backend
-go run ./cmd/migrate          # create tables (already applied to the Neon DB)
+go run ./cmd/migrate          # create tables (must be run once on the new Supabase DB)
 go run ./cmd/seed             # only on an empty DB; add -reset to wipe and reseed
 go run ./cmd/server           # API on :8080
 cd ../frontend && npm install && npm run dev    # UI on :5173 (proxies /api to :8080)
-cd ../backend && go test ./... -count=1         # about a minute (Neon latency)
+cd ../backend && go test ./... -count=1 -timeout 30m   # about 11 minutes on Supabase (Sydney region latency)
 ```
 
 Demo logins (password **`Demo@2026!`**, throwaway): `head@companya.test` (sales head), `rohan@companya.test` (Project 1), `aisha@companya.test` (Project 2), `vikram@companya.test` (both).
 
-## 6. What is done (Phases 0 to 3)
+## 6. What is done (Phases 0 to 6, plus the backend of 7 and 8)
+
+**Staff UI (Phase 6), uncommitted, added 2026-11-04.** All in `frontend/src/staff/` (+ `staff.css`), routes in `App.tsx`, menu in `pages/StaffShell.tsx` (head sees Dashboard, Review, Settings; the routes are also wrapped in `RequireAuth roles={['head']}`). `StaffHome` placeholder deleted.
+- `LeadsPage` (`/staff`): filters in the URL (search with 300 ms debounce, status, source, project, assignee for the head, needs attention), pagination, cards on phones, duplicate/opt-out chips, first-reply time in amber when over 5 min or missing. `AddLeadForm` (consent box required; a known phone joins the existing lead).
+- `LeadDetailPage` (`/staff/leads/:id`), the handoff screen: duplicate banner (head: merge / different people), chat transcripts with the handoff summary and staff notes (`ChatTranscript`), history (touches), buyer details with assign select (head), `VisitPanel` (mark came / did not come once started, cancel, book from free slots via `SlotPicker`), mark lost / reopen, record opt-out. On phones the buyer and visit panels come first.
+- `VisitsPage` (diary, next/last two weeks, outcome buttons), `RemindersPage` (log with skip reasons and message text), `ReviewPage` (flagged chats, read inline, mark reviewed), `DashboardPage` (KPI tiles with brief targets, cost per visit by source bars, leads per day columns with hover tooltip + table view, by-source table; periods are month-aligned because spend counts whole months), `SettingsPage` tabs: `settings/FactsEditor`, `SlotsManager` (open several one-hour slots for a day), `SpendEditor` (6 months x 4 paid sources), `TeamManager` (add, switch off/on, new password).
+- Shared: `staff/shared.tsx` (`ConfirmButton` asks in place instead of `window.confirm`, `useProjects`, `useTeam`, `Detail`, `budgetText`), `staff/Charts.tsx` (hand-made SVG/HTML charts, chart colour token `--chart-1: #1f8a6e` checked with the dataviz palette validator).
+- Changed shared code: `lib/useApi` now drops data from an old path unless `{ keepPrevious: true }` (lead list and dashboard keep it, faded); `AuthProvider` retries `/auth/me` twice and shows "could not check your sign-in" with a retry instead of treating a 500 as signed out (`checkError`, `recheck` on the auth context).
+- Verified with a headless Chrome script (playwright-core in the scratchpad, not in the repo): every staff screen as head and executive, desktop and 390 px phone; write flows passed through the UI and were undone (fact add/remove, slot open/remove, visit book/cancel, search). Executive sees only own 28 leads; executive visiting `/staff/dashboard` is redirected.
+
+
+**Backend for Phases 5 to 8, uncommitted, added 2026-11-04** (the user asked to "build the whole backend"):
+- Buyer: `GET /api/projects`, `GET /api/projects/{id}` (with public fact sheet), `POST /api/visits/{code}/opt-out`; `VisitDetail` has `optedOut`.
+- Reminders (Phase 7): new package `internal/reminders` (`message.go` EN/HI/GU text with RERA number + "reply STOP", `decide.go` send-time checks, `messenger.go` Messenger interface + `LogMessenger` mock, `worker.go` 30 s loop started from `cmd/server/main.go`, stopped on shutdown). `store/reminders.go`: `ProcessDueReminders` claims ONE reminder per transaction with `FOR UPDATE SKIP LOCKED`, deliberately `runTx` (no retry, so no double send); `ReminderLog`; opt-out by visit code / phone / staff (skips queued reminders, adds a touch). STOP webhook `POST /api/webhooks/inbound` (`X-Webhook-Secret` = `INBOUND_WEBHOOK_SECRET`, constant-time compare; 404 when unset). Seed reminders now use `reminders.Render`.
+- Staff (Phase 6 APIs): `GET /api/staff/dashboard` (head; cohort of leads arriving in the range; median first response, % within 5 min, unreached in 48 h, lead-to-visit = visited, show-up = visited/(visited+no-show), spend/cost per lead/cost per visit by source; whole months of spend; cost empty with a project filter; daily series) in `store/dashboard.go`; fact editor `GET /api/staff/projects/{id}/facts`, head `PUT/DELETE .../facts/{topic}` (live for the very next chat message); spend `GET/PUT /api/staff/spend` (head); `GET /api/staff/visits`, `/slots`, `/reminders` (executives see own, in SQL); `POST /api/staff/leads/{id}/status` (lost/engaged only; refused while a visit is booked) and `/opt-out`; users (head): `GET/POST /api/staff/users`, `POST /users/{id}/active` (switch-off deletes sessions, cancels their open future slots, reports visits/leads to reassign; cannot switch off yourself), `POST /users/{id}/password` (signs out everywhere). Handoff no longer picks a switched-off assignee.
+- Deploy (Phase 8): `httpapi/static.go` serves `STATIC_DIR` (SPA fallback to index.html, immutable cache for `/assets/`, strict CSP on pages, GET/HEAD only). Root `Dockerfile` (node build -> go build -> alpine, non-root, healthcheck, runs `migrate` then `server`) and `.dockerignore`. New env: `STATIC_DIR`, `PUBLIC_URL`, `INBOUND_WEBHOOK_SECRET`, `REMINDERS=off`.
+- Decided NOT to stream chat replies over SSE: the guardrail must check the whole reply before the buyer sees any of it.
+- Verified: real server on the seeded Supabase DB served the app + API (dashboard last 30 days: 93 leads, median first response 105 s, lead-to-visit 6.5%, show-up 86%, cost per visit Rs 16,500).
+
+
+**Phase 4 (AI agent), uncommitted, added 2026-11-03:**
+- Folders: everything AI lives in `internal/ai/` (restructured at the user's request): `ai/completion.go` (the `ChatCompletion` interface: `Complete`, `Provider`, `Model`, plus the shared message types), `ai/providers/` (one struct per provider: `Gemini`, `OpenAI`, `Offline`; `providers.New(cfg)` picks one from `AI_PROVIDER`; the ONLY code that calls a model API, plain `net/http`; Google's Go SDK was dropped because its dependency tree is huge; OpenAI is unit-tested on its JSON but not yet called for real), `ai/assistant/` (pure: agent loop `agent.go`, 5 tools `tools.go`, system prompt from the fact sheet `prompt.go`, guardrails `guard.go`, fixed EN/HI/GU texts `scripts.go`, handoff summary `summary.go`), `store/chat.go` + `chat_staff.go`, `httpapi/chat_handlers.go` + `chat_actions.go` (the bridge from tools to the store). Migrations `00002_chat.sql`, `00003_chat_isolation.sql` (applied to Supabase).
+- Buyer API (no login, `chat` cookie on `/api/chat` only): `POST /api/chat/start` (name, phone, project, language, consent required; lead saved via IngestLead as source `website`; greeting sent instantly without the model, sets `first_response_at`), `GET /api/chat`, `POST /api/chat/messages`, `POST /api/chat/book` (slot card, no model), `POST /api/chat/handoff` ("talk to a person"). Staff: lead detail now has `chats` (with staff-only system notes) and `timeline`; head-only `GET /api/staff/chats/flagged`, `POST /api/staff/chats/{id}/reviewed`.
+- Guardrails in code, not just the prompt: every money figure in a reply must appear in the fact sheet (any digits, EN/HI/GU units); discount/guarantee words blocked; blocked reply replaced by a fixed message, chat flagged, original kept as a staff note. Injection-looking buyer messages flag the chat. `book_slot` only accepts ids returned by `get_free_slots` in the same turn, and the store re-checks the project. Model failure, timeout or endless tool calls -> fixed reply in the buyer's language + handoff to a named executive + slot cards.
+- Handoff picks the lead's executive, else the one who shows the project with the fewest open leads. Summary (facts from the DB + a model-written gist) is written in the background (`Server.background` WaitGroup, waited on at shutdown and in tests).
+- Eval set: `tests/ai/assistant/testdata/evals.json` (26 cases: facts, missing facts, price traps, injection, booking/handoff/profile flows, Hindi/Gujarati). Run: `LEADFLOW_EVAL=1 go test ./tests/ai/assistant -run TestEvals -v` (uses whatever `AI_PROVIDER`/`AI_MODEL` say) (paced to `EVAL_RPM`, default 4/min). **Only partly measured**: 9 cases got real answers before the free-tier daily quota ran out; 8 passed (all 5 fact cases, 3 of 4 missing-fact cases), `missing-schools` answered without handing off. The rest still need a run.
+
+**Security review fixes (two reviewers, 2026-11-03):**
+- Chat identity: a typed phone proves nothing. A chat sees only the name typed in it and a visit booked in it (`conversations.buyer_name`, `visit_id`); if the phone already had a lead (`new_lead = false`) the chat cannot book (a person confirms by phone) or overwrite recorded details (only fills blanks). Chat tokens expire on the server (`token_expires_at`, 30 days). Real fix later: OTP over SMS/WhatsApp.
+- Rate limits: `middleware.RealIP` removed (it trusted client-sent X-Forwarded-For). `ClientIP` uses the connection address, or only the header named in `TRUSTED_PROXY_HEADER`. Limiter no longer wipes itself at 10,000 keys (evicts idle buckets only). New per-account limit: 5 failed logins / 15 min per email.
+- `APP_ENV` unset = production; anything but development/production is an error; cookies Secure unless development. HSTS when secure; `Cache-Control: no-store` + deny-all CSP on `/api`.
+- Login: DB errors are 500 + logged (not "wrong password"); disabled accounts run bcrypt before refusal (same timing); display-name emails rejected; clearer 72-byte message. Middleware: DB errors are 500, not "signed out". Logout: if the session cannot be deleted it returns 500 and keeps the cookie; frontend keeps the user signed in and shows an alert. Frontend: any 401 (except login) clears the user.
+- Seed: production refuses `-reset` and the built-in demo password, and never prints the password. Tests: loud SKIPPING banner without a DB; `LEADFLOW_REQUIRE_DB=1` makes it fatal.
+- Not done (noted by reviewers, judged later work): user management endpoints (create/disable/reset password), bcrypt cost 12 (needs reseeding so the dummy hash cost matches), a CSP for the HTML page (Phase 8, when Go serves the UI), `models.User` vs `auth.User` duplication (kept: `auth.User` is the hash-free view).
 
 **Phase 3 (leads and dedupe), uncommitted, added 2026-11-03:**
 - `leads.Input.Clean` validates and normalises every enquiry. `NormalizePhone` accepts Indian mobiles only and returns `+91XXXXXXXXXX`. `NamesSimilar` (case/order/punctuation-insensitive, first+last word, about 15% edit distance, Hindi/Gujarati safe) drives the fuzzy flag. `Merge` combines two records (consent from either counts, opt-out from either wins).
@@ -96,23 +137,24 @@ Demo logins (password **`Demo@2026!`**, throwaway): `head@companya.test` (sales 
 
 Git history on `main` (13 commits, local only, **not pushed**): gitignore/env template, schema migrations, models, auth, store base, booking rules, booking engine + tests, HTTP API, seed, room photos, frontend scaffold, frontend login, deployment.md.
 
-- **Schema (12 tables)**, applied to Neon. The DB itself blocks double booking: unique index (one live visit per slot), unique index (one booked visit per lead), and a GiST exclusion constraint (one executive cannot own overlapping slots).
+- **Schema (12 tables)**, applied to Neon at the time; re-apply on Supabase. The DB itself blocks double booking: unique index (one live visit per slot), unique index (one booked visit per lead), and a GiST exclusion constraint (one executive cannot own overlapping slots).
 - **Booking engine** (`store/booking.go`): FreeSlots, BookSlot, RescheduleVisit (keeps the visit code, atomic), CancelVisit, MarkOutcome, CreateSlot, CancelSlot. Claiming a slot is one atomic `UPDATE ... WHERE status='open'` inside a transaction. The race test (50 buyers, 1 slot) passes: exactly one wins.
 - **API**: `GET /api/healthz`; `POST /api/auth/{login,logout}`, `GET /api/auth/me`; public `GET /api/slots?project=&from=&to=`, `GET /api/visits/{code}`, `POST /api/visits/{code}/{cancel,reschedule}`; staff `POST /api/staff/visits`, `POST /api/staff/visits/{id}/{cancel,outcome}`; head-only `POST /api/staff/slots`, `DELETE /api/staff/slots/{id}`. Login rate-limited, public endpoints rate-limited, CSRF origin check, strict JSON decoding.
 - **Frontend**: login screen (living-room photo, demo quick-fill), auth provider, route guard with role support, staff shell and a **placeholder** staff home. Verified in a real browser.
 - **Seed data**: 163 leads (the 3 from the brief exact), 18 visits (12 past, 6 upcoming), 145 slots, 5 flagged possible duplicates, 174 lead touches, 18-entry fact sheet, spend at ₹1,000 per lead.
-- **Tests**: 63 top-level tests (counted from `go test -v` on 2026-11-03, after Phase 3; subtests extra), all passing, none skipped. The store package takes about 100 s and httpapi about 40 s because of Neon latency. Unit tests (auth, booking rules, CSRF, validation) plus integration tests against a throw-away Neon schema.
+- **Tests (after Phase 4, 2026-11-03)**: 104 top-level tests, all passing with `LEADFLOW_REQUIRE_DB=1` (store ~420 s, httpapi ~420 s on Supabase). Earlier note: 63 top-level tests (counted from `go test -v` on 2026-11-03, after Phase 3; subtests extra), all passing, none skipped. On Supabase (2026-11-03) the store package takes about 470 s and httpapi about 210 s because of remote DB latency (Sydney region). Unit tests (auth, booking rules, CSRF, validation) plus integration tests against a throw-away schema in the real database.
 
 ## 7. What is next (remaining plan)
 
 | Phase | Work |
 |---|---|
 | ~~3 Leads and dedupe~~ | **Done** (see section 6). |
-| **4 AI agent** | Gemini function-calling loop. Tools: `get_free_slots`, `book_slot` (calls the existing engine), `save_profile` (budget, BHK, timeline), `request_human`, `flag_chat`. System prompt built from `fact_sheet_entries`. **Server-side guardrails**: block/rewrite any reply that quotes a price, discount or guarantee; reject tool args not from the fact sheet/DB; missing fact leads to "a person will confirm" plus handoff. English/Hindi/Gujarati. Scripted fallback if Gemini fails or rate-limits (lead is always saved first). Handoff summary to the named executive. Persist `conversations`/`messages`; set `leads.first_response_at`. A small **eval set (about 25 prompts)**: price traps, missing facts, injection attempts, the three languages. Buyer session: anonymous name + phone + **consent checkbox**; decide how the buyer proves identity to the booking tool. |
-| **5 Buyer UI** | Chat screen (consent gate, language switch, streaming reply over SSE, quick replies, inline slot cards, confirmation with map pin, "talk to a person" always visible, RERA footer) and the `/visit/:code` page (view, reschedule, cancel, opt-out). Loading/empty/error states, mobile first. |
-| **6 Staff UI** | Lead list (cards on mobile), lead detail (chat history, AI summary, visit panel, mark visited/no-show), dashboard (median first response, unreached in 48h, lead-to-visit, show-up rate, **cost per visit by source**), admin editor (fact sheet + slots), flagged-chat review queue, reminder log. Replace `StaffHome` placeholder. |
-| **7 Reminders and compliance** | Background goroutine worker: select due `reminders` with `FOR UPDATE SKIP LOCKED`, render message (**must include the project RERA number**), mock messenger writes to the table, honour opt-out/consent. Opt-out ("STOP") handling. |
-| **8 Hardening and deploy** | Dockerfile (Go serves built React), deploy, set `APP_ENV=production` (secure cookies), tidy empty/error states, accessibility pass, access-control tests for new routes, security review. |
+| ~~4 AI agent~~ | **Done** (see section 6), except a complete eval run. Original plan: |
+| (4, plan as written) | Gemini function-calling loop. Tools: `get_free_slots`, `book_slot` (calls the existing engine), `save_profile` (budget, BHK, timeline), `request_human`, `flag_chat`. System prompt built from `fact_sheet_entries`. **Server-side guardrails**: block/rewrite any reply that quotes a price, discount or guarantee; reject tool args not from the fact sheet/DB; missing fact leads to "a person will confirm" plus handoff. English/Hindi/Gujarati. Scripted fallback if Gemini fails or rate-limits (lead is always saved first). Handoff summary to the named executive. Persist `conversations`/`messages`; set `leads.first_response_at`. A small **eval set (about 25 prompts)**: price traps, missing facts, injection attempts, the three languages. Buyer session: anonymous name + phone + **consent checkbox**; decide how the buyer proves identity to the booking tool. |
+| ~~5 Buyer UI~~ **Built** (not yet browser-tested end to end) | Chat screen (consent gate, language switch, streaming reply over SSE, quick replies, inline slot cards, confirmation with map pin, "talk to a person" always visible, RERA footer) and the `/visit/:code` page (view, reschedule, cancel, opt-out). Loading/empty/error states, mobile first. |
+| ~~6 Staff UI~~ **Done** (see section 6). Plan as written: | Lead list (cards on mobile), lead detail (chat history, AI summary, visit panel, mark visited/no-show), dashboard (median first response, unreached in 48h, lead-to-visit, show-up rate, **cost per visit by source**), admin editor (fact sheet + slots), flagged-chat review queue, reminder log. Replace `StaffHome` placeholder. |
+| ~~7 Reminders and compliance~~ **Done** (backend only phase) | Background goroutine worker: select due `reminders` with `FOR UPDATE SKIP LOCKED`, render message (**must include the project RERA number**), mock messenger writes to the table, honour opt-out/consent. Opt-out ("STOP") handling. |
+| **8 Hardening and deploy** (Dockerfile + static serving done) | Deploy, set `APP_ENV=production` (secure cookies), tidy empty/error states, accessibility pass, access-control tests for new routes, security review. |
 | **9 Submission** | TDD (PDF/Word, **GitHub URL first**), finish `deployment.md`, clean history, zip (under 25 MB). |
 
 ### Optional extra layer: public browse + furnished 3D tour (do after the core works)
@@ -120,10 +162,15 @@ The user asked for a scrollable listings page with sort/filter and, on click, a 
 
 ## 8. Gotchas learned the hard way
 
-- **Neon ignores `search_path` as a connection startup parameter** (silently). Use `SET search_path` in `AfterConnect`. `internal/testdb` does this and has a guard that refuses to run unless the tables really are in the temporary schema. Never run tests against `public`.
+- **Poolers ignore `search_path` as a connection startup parameter** (seen silently on Neon). Use `SET search_path` in `AfterConnect`. `tests/testdb` does this and has a guard that refuses to run unless the tables really are in the temporary schema. Never run tests against `public`.
 - goose's version table in `public` made a test migration think nothing was pending. `testdb` sets the table name to `<schema>.goose_db_version`.
 - Vite dev origin (`localhost:5173`) differs from the API host, so the CSRF origin check needs `ALLOWED_ORIGINS` (defaults to `http://localhost:5173` when not production). Real login in the browser failed until this was added.
-- Neon free DBs sleep; `store.Connect` retries with backoff.
+- `store.Connect` retries with backoff (free Supabase projects pause after a week idle; restore them from the dashboard).
+- **Supabase session pooler allows only 15 clients in total.** `tests/testdb` keeps its pools tiny (admin 1, test pool 5, goose 1 and closed after migrating); raising them makes concurrency tests fail with `EMAXCONNSESSION`.
+- Supabase direct host (`db.<ref>.supabase.co`) is IPv6 only on the free plan, so use the pooler URLs.
+- **Gemini free tier is tiny**: gemini-2.5-flash allows 5 requests/minute and **20 per day** on this key; one buyer message can take 2 to 4 calls. Enough for a short demo only. The default is now `gemini-3.5-flash-lite` (bigger free allowance; called tools correctly in a probe on 2026-11-03; `gemini-3.1-flash-lite` also did). Switch model with `AI_MODEL`, or company with `AI_PROVIDER=openai` (`gpt-5-nano`, roughly $0.001 per buyer message). Production needs billing on whichever key is used.
+- `APP_ENV` unset now means **production** (secure cookies, no dev origin). Local `.env` has `APP_ENV=development`.
+- Shell heredocs with Python that contain `''` broke once in this Bash tool; writing the script to the scratchpad and running it works.
 - `rtk` prints a harmless "No hook installed" warning on every call.
 - On Windows PowerShell the working tree path has a space: `E:\Sudhanshu\Projects\ISOCode Assesment`. Quote it.
 - Codex CLI can generate images: `codex exec --skip-git-repo-check --sandbox workspace-write -C <dir> "<prompt>"` (about 2 minutes per image, ~3 MB PNG; resize to JPEG before use). It uses the user's OpenAI account.
@@ -146,7 +193,10 @@ The user asked for a scrollable listings page with sort/filter and, on click, a 
 
 ## 10. Known loose ends
 
-- `StaffHome` is a placeholder.
+- **Supabase latency is the main risk for the demo.** One DB round trip is about 0.4 s from here (project is in the Sydney region). Endpoints alone take 1.5 to 3.5 s, but when the browser fires 4 to 6 at once some exceed the server's 30 s timeout (seen on list leads, staff visits, list users). The session lookup is a plain SELECT, so it is not lock contention. Fix to try first: move the Supabase project to Mumbai (ap-south-1) or deploy the app in the same region as the DB; then compare the session pooler (5432) with the transaction pooler (6543) under concurrency.
+- The review queue is empty in the seed data (no flagged chats); seed one or two for the demo.
+- Seed data has a lead touch dated in the future (LD-58234, "5 Nov, 9:58 pm" seen on 4 Nov): seed times are probably offset from the wrong base.
+- ESLint is not installed in `frontend` (`npx eslint` tries to download it).
 - `internal/models` is wired into the leads store only; the booking store and the seeder still use local types. `auth.Role*` now aliases `models.Role*`.
 - The Vite template `frontend/README.md` and `public/icons.svg` were removed (staged deletions, uncommitted).
 - `deployment.md` "How it is deployed" is a stub.
