@@ -203,3 +203,13 @@ The user asked for a scrollable listings page with sort/filter and, on click, a 
 - No frontend tests yet. No reminder sender yet (rows are created, nothing sends them).
 - **Uncommitted (the user commits).** Suggested commits: (1) `feat(leads): add lead rules package` (`internal/leads/`); (2) `feat(store): add lead ingest, list and duplicate merge` (`store/leads*.go`, `testdb` fixture); (3) `feat(api): add lead endpoints` (`httpapi/lead_handlers*.go`, `router.go`); (4) `chore: tidy repo layout` (`auth.go` role aliases, `README.md`, removed Vite leftovers, `HANDOFF.md`).
 - The Codex test images and design canvas files live in scratch folders, not the repo.
+
+## 11. DPDP encryption of personal data (2026-11-07)
+
+- `backend/internal/pii`: AES-256-GCM (random 12-byte nonce, the data's kind bound in as GCM additional data, key id in each ciphertext for rotation) and HMAC-SHA-256 blind indexes with a separate key.
+- The "interceptor" is in the pgx driver: store code passes `pii.Seal(kind, v)` as an argument and `pii.Open(kind, &v)` as a scan target; pgx calls `BytesValue`/`TextValue`/`ScanBytes`, which pgx checks before its generic fallbacks, so plaintext never reaches Postgres in either the binary or the simple (transaction pooler) protocol. `tests/pii` proves this with pgx's type map.
+- Encrypted columns (bytea): users.email/name, leads.name/phone, conversations.buyer_name/summary, messages.content, lead_touches.note, visits.notes, reminders.body. Blind indexes: users.email_bidx (unique, sign-in), leads.phone_bidx (unique, dedupe, STOP opt-out, search), leads.name_words bytea[] + GIN (whole-word name search). flag_reason stays plain (system text only).
+- Behaviour changes: lead search matches code (partial), whole name words, or a full phone number; no partial name/phone matches. Sorting by staff name moved from SQL to Go.
+- Migrations 00005 (add twins) → 00006 (Go: encrypt in batches) → 00007 (drop plaintext, rename, constraints). All reversible; `tests/migrations` round-trips them. Applied to the live Supabase DB on 2026-11-07.
+- Keys: `PII_ENCRYPTION_KEYS` and `PII_INDEX_KEY` in `backend/.env` (generated locally, never printed). Required; back them up. Production needs them as platform secrets.
+- Known flaky test: `TestSpoofedForwardedForDoesNotBypassLoginLimit` fails when the 11 logins take over 6 s (limiter refill) under parallel DB load; it passes alone.

@@ -32,6 +32,8 @@ booked), and hands serious buyers to a named salesperson.
 │       │   ├── providers/       one struct per provider (Gemini, OpenAI, Offline) + New(), which
 │       │   │                    picks one from AI_PROVIDER; the ONLY code that calls a model API
 │       │   └── assistant/       the sales assistant: agent loop, tools, prompt, guardrails, fixed replies
+│       ├── pii/                 DPDP: AES-256-GCM encryption of personal data in the DB driver
+│       │                        (Seal/Open hooks pgx calls) + HMAC-SHA-256 blind indexes for lookups
 │       ├── store/               ALL SQL lives here (booking*, leads*, chat*, users)
 │       ├── httpapi/             routes, handlers, request checks
 │       └── seed/                the sample-data seeder

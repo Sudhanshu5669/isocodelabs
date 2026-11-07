@@ -111,13 +111,21 @@ The container applies pending migrations, then starts the server, which serves t
 | `REMINDERS` | Set to `off` to stop the background reminder sender on this server (default on). Running it on several servers is safe |
 | `SEED_DEMO_PASSWORD` | Staff password the seeder sets. Optional with `APP_ENV=development` (the demo password above is used); **required in production**, where the seeder also refuses `-reset` |
 | `VITE_SHOW_DEMO_LOGINS` | Optional frontend build flag: `true` shows the demo-account buttons on the login page |
+| `PII_ENCRYPTION_KEYS` | **Required.** AES-256-GCM key(s) for personal data (DPDP), as `id:base64`, e.g. `1:<openssl rand -base64 32>`. To rotate, add a new id (`1:<old>,2:<new>`): new data uses the highest id, old data still decrypts |
+| `PII_INDEX_KEY` | **Required.** Separate 32-byte base64 key for the HMAC-SHA-256 blind indexes (sign-in by email, one lead per phone, STOP opt-out, lead search). Must differ from the encryption keys and cannot be rotated without re-indexing |
 
 Never commit `backend/.env`. It is listed in `.gitignore`.
+
+### Personal data protection (DPDP)
+
+Names, phone numbers, emails, chat messages, AI summaries, staff notes and reminder texts are encrypted with AES-256-GCM in the database driver before they reach Postgres (`backend/internal/pii`), so the database, its backups and anyone with SQL access see only ciphertext. Lookups use HMAC-SHA-256 blind indexes instead of the values. Staff search therefore matches a lead code (partly), whole words of a name, or a complete phone number, but not part of a name or phone.
+
+**Back up both keys somewhere other than the database.** Without them the data cannot be decrypted. Migrations 00005 to 00007 encrypt an existing plaintext database in place (they need the keys), and `go run ./cmd/migrate down` three times decrypts it back.
 
 ## How it is deployed
 
 The `Dockerfile` at the repo root builds one image: the React app (Node 22), the Go binaries (`server`, `migrate`, `seed`), and a small Alpine runtime that runs as a non-root user. On start it runs `./migrate` and then `./server`. Any container host works (Fly.io, Render, Railway); the database stays on Supabase.
 
-Set `APP_ENV=production` (the image's default), the database URLs, the AI variables, and `TRUSTED_PROXY_HEADER` for your host. The image has a health check on `/healthz`.
+Set `APP_ENV=production` (the image's default), the database URLs, the AI variables, `PII_ENCRYPTION_KEYS` and `PII_INDEX_KEY` (as platform secrets; the server will not start without them), and `TRUSTED_PROXY_HEADER` for your host. The image has a health check on `/healthz`.
 
 The live deployment and its URL are added in the final phase.
