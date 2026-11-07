@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState, ErrorState } from '../components/ui'
 import { useApi } from '../lib/useApi'
-import { coverFor, lakhs, type Unit } from './catalogue'
+import { coverFor, floorLabel, lakhs, type Unit } from './catalogue'
 
 // The catalogue: every flat for sale, with filters a buyer actually uses
 // (project, size, budget) and a sort. Each card opens the flat's 3D tour.
@@ -24,9 +24,9 @@ export default function CataloguePage() {
 
   const units = data?.units ?? []
   const projects = useMemo(() => [...new Map(units.map((u) => [u.projectId, u.projectName])).entries()], [units])
-  const priceRange = units.length
-    ? `${lakhs(Math.min(...units.map((u) => u.indicativePriceLakh)))} to ${lakhs(Math.max(...units.map((u) => u.indicativePriceLakh)))}`
-    : '–'
+  const minArea = units.length ? Math.min(...units.map((u) => u.areaSqft)).toLocaleString('en-IN') + '+' : '–'
+  const fromPrice = units.length ? lakhs(Math.min(...units.map((u) => u.indicativePriceLakh))) : '–'
+  const reraNumbers = [...new Set(units.map((u) => u.reraNumber))]
 
   const shown = useMemo(() => {
     const test = budgets.find((b) => b.id === budget)!.test
@@ -47,32 +47,76 @@ export default function CataloguePage() {
   }
 
   return (
-    <main className="pub-main">
+    <main className="cat">
       <section className="cat-hero">
-        <div>
-          <p className="eyebrow">{projects.length || 2} live projects in Ahmedabad</p>
-          <h1>Walk through your home before you visit it.</h1>
-          <p className="cat-lede">
-            Browse 2 and 3 BHK homes, step inside each one in 3D, then book a site visit in a time that is really free.
-          </p>
+        <img className="cat-hero-img" src="/images/rooms/living.jpg" alt="" fetchPriority="high" />
+        <div className="cat-wrap cat-hero-inner">
+          <div className="cat-hero-copy">
+            <p className="cat-hero-eyebrow">Ahmedabad · 2 &amp; 3 BHK residences</p>
+            <h1>
+              Homes worth
+              <br />a closer look.
+            </h1>
+            <p className="cat-lede">
+              Walk through every flat in 3D, ask anything in English, Hindi or Gujarati, and book a site visit in a time
+              that is really free.
+            </p>
+            <div className="actions">
+              <a href="#homes" className="btn btn-large">
+                See the homes
+              </a>
+              <Link to="/chat" className="btn btn-large btn-outline">
+                Ask a question
+              </Link>
+            </div>
+          </div>
+          <aside className="cat-glance" aria-label="At a glance">
+            <p className="eyebrow">At a glance</p>
+            <dl>
+              <div>
+                <dt>projects</dt>
+                <dd>{loading ? '–' : projects.length}</dd>
+              </div>
+              <div>
+                <dt>homes open</dt>
+                <dd>{loading ? '–' : units.length}</dd>
+              </div>
+              <div>
+                <dt>sq ft</dt>
+                <dd>{minArea}</dd>
+              </div>
+              <div>
+                <dt>indicative, from</dt>
+                <dd>{fromPrice}</dd>
+              </div>
+            </dl>
+            {reraNumbers.length > 0 && <p className="cat-glance-rera">{reraNumbers.join(' · ')}</p>}
+          </aside>
         </div>
-        <dl className="cat-facts">
-          <div>
-            <dt>Homes listed</dt>
-            <dd>{loading ? '–' : units.length}</dd>
-          </div>
-          <div>
-            <dt>Configurations</dt>
-            <dd>2 and 3 BHK</dd>
-          </div>
-          <div>
-            <dt>Indicative prices</dt>
-            <dd>{priceRange}</dd>
-          </div>
-        </dl>
       </section>
 
-      <section aria-label="Homes" className="cat-list">
+      <section className="cat-wrap cat-statement">
+        <p className="cat-num">01/ 03</p>
+        <h2>
+          Ask at midnight. Get a straight answer. <span>Meet a real person when it matters.</span>
+        </h2>
+      </section>
+
+      <section id="homes" aria-label="Homes" className="cat-wrap cat-list">
+        <div className="cat-list-head">
+          <div>
+            <p className="cat-num">02/ 03 · The homes</p>
+            <p aria-live="polite">
+              {loading ? 'Loading homes' : `${shown.length} of ${units.length} homes`} · prices are indicative, confirmed by
+              the sales team
+            </p>
+          </div>
+          {filtered && (
+            <button className="btn btn-quiet btn-small" onClick={clear}>
+              Clear filters
+            </button>
+          )}
+        </div>
         <div className="cat-filters">
           <div className="cat-filter-row">
             <ChipGroup
@@ -95,15 +139,6 @@ export default function CataloguePage() {
               </select>
             </label>
           </div>
-        </div>
-
-        <div className="cat-count">
-          <p aria-live="polite">{loading ? 'Loading homes' : `${shown.length} of ${units.length} homes`}</p>
-          {filtered && (
-            <button className="btn btn-quiet btn-small" onClick={clear}>
-              Clear filters
-            </button>
-          )}
         </div>
 
         {error ? (
@@ -136,31 +171,75 @@ export default function CataloguePage() {
                 <Link key={u.code} to={`/homes/${u.code}`} className="cat-card">
                   <div className="cat-card-img">
                     <img src={cover.src} alt={`${cover.name} in a furnished ${u.bhk} BHK`} loading={i < 3 ? 'eager' : 'lazy'} decoding="async" />
+                    <span className="cat-code">
+                      {u.code} · {u.projectName}
+                    </span>
                     <span className="cat-badge">
                       <CubeIcon /> 3D tour
                     </span>
                   </div>
-                  <div className="cat-card-body">
-                    <p className="cat-card-kicker">
-                      {u.projectName} · {u.code}
-                    </p>
-                    <h2>{u.bhk} BHK residence</h2>
-                    <p className="muted small">
-                      {u.areaSqft.toLocaleString('en-IN')} sq ft · {u.facing} facing · Floor {u.floor}
-                    </p>
-                    <div className="cat-card-foot">
-                      <div>
-                        <p className="cat-price">{lakhs(u.indicativePriceLakh)}</p>
-                        <p className="muted small">Indicative price</p>
-                      </div>
-                      <span className="cat-step">Step inside →</span>
-                    </div>
+                  <div className="cat-card-title">
+                    <h3>
+                      {u.bhk} BHK · Tower {u.tower}
+                    </h3>
+                    <span className="cat-price">{lakhs(u.indicativePriceLakh)}</span>
+                  </div>
+                  <div className="cat-card-foot">
+                    <span>
+                      {u.areaSqft.toLocaleString('en-IN')} sq ft · {floorLabel(u.floor)} · {u.facing}
+                    </span>
+                    <span className="cat-step">
+                      View <span aria-hidden="true">→</span>
+                    </span>
                   </div>
                 </Link>
               )
             })}
           </div>
         )}
+      </section>
+
+      <section id="how" className="cat-how">
+        <div className="cat-wrap">
+          <div className="cat-how-head">
+            <h2>
+              From question
+              <br />
+              to front door.
+            </h2>
+            <p className="cat-num">03/ 03 · How visits work</p>
+          </div>
+          <ol className="cat-steps">
+            <li>
+              <span className="cat-num">01</span>
+              <h3>Ask anything</h3>
+              <p>The assistant answers from the approved fact sheet only. If it does not know, it says so and a person follows up.</p>
+            </li>
+            <li>
+              <span className="cat-num">02</span>
+              <h3>Pick a free time</h3>
+              <p>You only see times that are still open, so a visit is never double booked. Change or cancel from your visit link.</p>
+            </li>
+            <li>
+              <span className="cat-num">03</span>
+              <h3>Meet your advisor</h3>
+              <p>A named salesperson meets you on site. You get a reminder a day before and two hours before.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section className="cat-cta">
+        <div className="cat-wrap">
+          <h2>
+            Tell us what
+            <br />
+            you need.
+          </h2>
+          <Link to="/chat" className="btn btn-large">
+            Start a chat <span aria-hidden="true">→</span>
+          </Link>
+        </div>
       </section>
     </main>
   )

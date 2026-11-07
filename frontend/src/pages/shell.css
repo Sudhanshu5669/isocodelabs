@@ -1,88 +1,159 @@
+/* Staff frame: a dark sidebar on wide screens, a top bar on narrow ones. */
 .shell {
   min-height: 100vh;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
 }
-.shell-header {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 20px 24px;
+.shell-side {
+  position: sticky;
+  top: 0;
+  height: 100vh;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 18px;
+  background: var(--deep);
+  border-right: 1px solid var(--line-soft);
 }
 .shell-brand {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px;
+}
+.shell-brand-name {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+.shell-brand-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .shell-nav {
   display: flex;
-  gap: 4px;
-  flex: 1;
+  flex-direction: column;
+  gap: 2px;
 }
 .shell-nav a {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: var(--radius-pill);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
 }
 .shell-nav a:hover {
-  color: var(--ink);
+  background: var(--surface-2);
 }
 .shell-nav a.active {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(28, 35, 33, 0.1);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 .shell-user {
+  margin-top: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 6px 10px;
+  padding: 16px 10px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.shell-signed {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--muted);
 }
 .shell-name {
-  font-size: 14px;
+  flex-basis: 100%;
+  font-size: 15px;
   font-weight: 600;
 }
 .shell-role {
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
 }
 .shell-user .btn {
-  min-height: 44px;
-  padding: 0 18px;
-  font-size: 14px;
+  margin-top: 10px;
+  flex-basis: 100%;
+}
+.shell-body {
+  min-width: 0;
 }
 .shell-main {
   max-width: 1280px;
-  margin: 0 auto;
-  padding: 24px 24px 64px;
+  padding: 40px clamp(20px, 4vw, 56px) 64px;
 }
 
-/* On narrow screens the menu takes its own row and scrolls sideways. */
+/* On narrow screens the sidebar becomes a top bar and the menu scrolls sideways. */
 @media (max-width: 1000px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell-side {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding: 16px 24px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .shell-brand {
+    padding: 0;
+  }
   .shell-nav {
     order: 3;
     flex-basis: 100%;
+    flex-direction: row;
     overflow-x: auto;
     margin: 0 -24px;
     padding: 2px 24px;
     scrollbar-width: none;
   }
+  .shell-nav a {
+    border-radius: var(--radius-pill);
+    padding: 0 16px;
+  }
+  .shell-user {
+    margin-top: 0;
+    padding: 0;
+    border-top: 0;
+    flex-wrap: nowrap;
+  }
+  .shell-signed {
+    display: none;
+  }
+  .shell-name {
+    flex-basis: auto;
+  }
+  .shell-user .btn {
+    margin-top: 0;
+    flex-basis: auto;
+  }
+  .shell-main {
+    padding: 28px 24px 64px;
+  }
 }
 @media (max-width: 560px) {
-  .shell-header,
+  .shell-side,
   .shell-main {
     padding-left: 16px;
     padding-right: 16px;
@@ -98,11 +169,5 @@
 
 /* Shown when sign-out fails, so the user knows they are still signed in. */
 .shell-alert {
-  max-width: 1232px;
-  margin: 0 auto 16px;
-}
-@media (max-width: 1280px) {
-  .shell-alert {
-    margin: 0 24px 16px;
-  }
+  margin: 24px clamp(20px, 4vw, 56px) 0;
 }

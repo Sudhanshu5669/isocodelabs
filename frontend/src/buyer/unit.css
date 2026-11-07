@@ -91,8 +91,9 @@
   width: 150px;
   padding: 10px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(6px);
+  background: rgba(20, 18, 16, 0.72);
+  border: 1px solid rgba(245, 241, 234, 0.16);
+  backdrop-filter: blur(12px);
 }
 .plan-svg {
   display: block;
@@ -100,17 +101,17 @@
   height: auto;
 }
 .plan-room {
-  fill: #fbfaf7;
+  fill: var(--surface-2);
   stroke: var(--ink);
   stroke-width: 0.09;
   cursor: pointer;
   transition: fill 0.2s ease;
 }
 .plan-room.is-outdoor {
-  fill: #ebf0ec;
+  fill: var(--good-soft);
 }
 .plan-room:hover {
-  fill: var(--accent-soft);
+  fill: #4a443d;
 }
 .plan-room.is-active {
   fill: var(--accent);

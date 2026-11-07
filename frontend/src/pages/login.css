@@ -15,16 +15,18 @@
   color: #fff;
 }
 .login-brand {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .login-tagline {
   margin-top: 12px;
-  max-width: 420px;
+  max-width: 460px;
   font-family: var(--font-display);
-  font-size: 36px;
-  line-height: 1.12;
+  font-size: 52px;
+  line-height: 0.95;
+  text-transform: uppercase;
 }
 
 .login-panel {
@@ -40,15 +42,15 @@
   gap: 20px;
 }
 .login-eyebrow {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--muted);
 }
 .login-form h1 {
-  font-size: 44px;
-  line-height: 1.05;
+  font-size: 56px;
+  line-height: 1;
   margin-top: -8px;
 }
 

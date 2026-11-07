@@ -45,8 +45,11 @@ export default function StaffShell() {
 
   return (
     <div className="shell">
-      <header className="shell-header">
-        <span className="shell-brand">COMPANY A</span>
+      <header className="shell-side">
+        <div className="shell-brand">
+          <span className="shell-brand-name">Company A</span>
+          <span className="shell-brand-sub">Sales desk</span>
+        </div>
         <nav className="shell-nav" aria-label="Staff screens">
           {links.map((l) => (
             <NavLink key={l.to} to={l.to} end={l.end}>
@@ -55,21 +58,24 @@ export default function StaffShell() {
           ))}
         </nav>
         <div className="shell-user">
+          <span className="shell-signed">Signed in as</span>
           <span className="shell-name">{user?.name}</span>
           <span className="shell-role">{user?.role === 'head' ? 'Sales head' : 'Executive'}</span>
-          <button className="btn btn-quiet" onClick={onLogout}>
+          <button className="btn btn-quiet btn-small" onClick={onLogout}>
             Sign out
           </button>
         </div>
       </header>
-      {logoutError && (
-        <p className="alert alert-error shell-alert" role="alert">
-          {logoutError}
-        </p>
-      )}
-      <main className="shell-main">
-        <Outlet />
-      </main>
+      <div className="shell-body">
+        {logoutError && (
+          <p className="alert alert-error shell-alert" role="alert">
+            {logoutError}
+          </p>
+        )}
+        <main className="shell-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

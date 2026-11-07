@@ -101,8 +101,8 @@ td .row-flags {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
-  border-color: var(--warn-soft);
-  background: #fdfaf3;
+  border-color: #5a4626;
+  background: var(--warn-soft);
 }
 .dup-banner .eyebrow {
   color: var(--warn);
@@ -269,12 +269,12 @@ td .row-flags {
 }
 .msg-user {
   justify-self: end;
-  background: var(--ink);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   border-bottom-right-radius: 4px;
 }
 .msg-user .msg-who {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(20, 18, 16, 0.7);
 }
 .msg-assistant {
   justify-self: start;
@@ -394,14 +394,16 @@ td .row-flags {
   border-radius: var(--radius-lg);
 }
 .kpi-label {
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 .kpi-value {
   font-family: var(--font-display);
-  font-size: 36px;
-  line-height: 1.1;
+  font-size: 44px;
+  line-height: 1.05;
 }
 .kpi-target {
   display: flex;
@@ -463,14 +465,14 @@ td .row-flags {
   gap: 2px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: var(--ink);
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 12px;
   white-space: nowrap;
   pointer-events: none;
 }
 .chart-tip .muted {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(20, 18, 16, 0.7);
 }
 .chart-table {
   margin-top: 12px;
@@ -664,7 +666,7 @@ td .row-flags {
   margin: 0;
   border: 0;
   border-radius: 0;
-  background: #fbfaf7;
+  background: var(--surface-2);
 }
 .hour-picks {
   display: flex;
