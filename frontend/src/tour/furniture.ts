@@ -35,6 +35,19 @@ const blob = (g: G, r: number, mat: THREE.Material, x: number, y: number, z: num
   return m
 }
 
+/**
+ * Marks where a lamp's light comes from. buildFlat collects these and the
+ * viewer puts a warm light at each one (the anchor itself draws nothing).
+ * strength: 1 for a reading lamp, more for a pendant, less for an LED strip.
+ */
+export type LightAnchor = { strength: number; reach: number }
+function light(g: G, x: number, y: number, z: number, strength = 1, reach = 3.2) {
+  const o = new THREE.Object3D()
+  o.position.set(x, y, z)
+  o.userData.light = { strength, reach } satisfies LightAnchor
+  g.add(o)
+}
+
 // One shared leaf shape: about 9 cm long, like an olive leaf. Each leaf is a
 // small card showing the leaf drawing (transparent around it).
 const leafGeo = new THREE.PlaneGeometry(0.13, 0.036)
@@ -102,7 +115,8 @@ const builders: Record<string, Builder> = {
     soft(g, len, 0.3, 0.42, 0.012, m.walnut, 0, 0.3, 0)
     box(g, len - 0.12, 0.008, 0.012, m.led, 0, 0.29, 0.12)
     box(g, 1.5, 0.86, 0.03, m.black, 0, 1.0, -0.16)
-    box(g, 1.46, 0.82, 0.01, m.screen, 0, 1.02, -0.14)
+    box(g, 1.46, 0.82, 0.01, m.tv, 0, 1.02, -0.14)
+    light(g, 0, 0.22, 0.25, 0.35, 2.2) // the LED glow under the console
     box(g, 0.26, 0.05, 0.18, m.book2, len / 2 - 0.35, 0.6, 0)
     box(g, 0.22, 0.04, 0.16, m.book3, len / 2 - 0.35, 0.65, 0)
     cyl(g, 0.05, 0.07, 0.2, m.stonePot, -len / 2 + 0.3, 0.6, 0)
@@ -131,8 +145,8 @@ const builders: Record<string, Builder> = {
     soft(g, 0.42, 0.4, 0.13, 0.07, m.oliveCloth, -len / 2 + 0.5, 0.5, -D / 2 + 0.42, 0.25, -0.2)
     soft(g, 0.4, 0.38, 0.13, 0.07, m.taupe, -len / 2 + 0.92, 0.5, -D / 2 + 0.4, -0.1, -0.2)
     soft(g, 0.4, 0.38, 0.13, 0.07, m.oliveCloth, len / 2 - 0.5, 0.5, -D / 2 + 0.4, -0.2, -0.2)
-    box(g, 0.55, 0.025, 0.95, m.oliveCloth, len / 2 - 0.3, 0.505, D / 2 + 0.45)
-    box(g, 0.55, 0.32, 0.02, m.oliveCloth, len / 2 - 0.3, 0.2, D / 2 + 0.93)
+    box(g, 0.55, 0.025, 0.95, m.knit, len / 2 - 0.3, 0.505, D / 2 + 0.45)
+    box(g, 0.55, 0.32, 0.02, m.knit, len / 2 - 0.3, 0.2, D / 2 + 0.93)
     return g
   },
 
@@ -167,6 +181,7 @@ const builders: Record<string, Builder> = {
     box(g, 0.022, 0.022, 0.5, m.black, 0, 1.73, 0.24)
     put(g, new THREE.SphereGeometry(0.17, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2), m.black, 0, 1.56, 0.5)
     put(g, new THREE.CircleGeometry(0.15, 20), m.lampGlow, 0, 1.565, 0.5, 0, Math.PI / 2)
+    light(g, 0, 1.4, 0.5, 1.2)
     return g
   },
 
@@ -255,7 +270,7 @@ const builders: Record<string, Builder> = {
     box(g, 0.08, 0.73, w - 0.24, m.walnut, -len / 2 + 0.28, 0, 0)
     box(g, 0.08, 0.73, w - 0.24, m.walnut, len / 2 - 0.28, 0, 0)
     box(g, len - 0.56, 0.06, 0.06, m.walnut, 0, 0.18, 0)
-    cyl(g, 0.06, 0.08, 0.22, m.ceramic, 0, 0.775, 0)
+    cyl(g, 0.06, 0.08, 0.22, m.stoneware, 0, 0.775, 0)
     blob(g, 0.1, m.leaf, 0, 1.05, 0, 1.2, 1.5, 1.2)
     return g
   },
@@ -274,6 +289,7 @@ const builders: Record<string, Builder> = {
     cyl(g, 0.004, 0.004, 0.9, m.black, 0, 1.8, 0, 4)
     put(g, new THREE.CylinderGeometry(0.05, 0.17, 0.18, 24, 1, true), m.brass, 0, 1.75, 0)
     put(g, new THREE.CircleGeometry(0.16, 24), m.lampGlow, 0, 1.665, 0, 0, Math.PI / 2)
+    light(g, 0, 1.55, 0, 1.1)
     return g
   },
 
@@ -301,7 +317,7 @@ const builders: Record<string, Builder> = {
     const g = new THREE.Group()
     cyl(g, 0.24, 0.24, 0.04, m.terracotta, 0, 0.42, 0, 28)
     cyl(g, 0.05, 0.08, 0.42, m.black, 0, 0, 0, 12)
-    cyl(g, 0.04, 0.05, 0.12, m.ceramic, 0.06, 0.46, 0.05)
+    cyl(g, 0.04, 0.05, 0.12, m.stoneware, 0.06, 0.46, 0.05)
     return g
   },
 
@@ -331,7 +347,7 @@ const builders: Record<string, Builder> = {
     const doors = Math.max(2, Math.round(len / 0.6))
     for (let i = 1; i < doors; i++) box(g, 0.005, 0.7, 0.004, m.black, -len / 2 + (len / doors) * i, 0.13, 0.301)
     for (let i = 0; i < doors; i++) box(g, 0.22, 0.012, 0.014, m.brass, -len / 2 + (len / doors) * (i + 0.5), 0.8, 0.31)
-    box(g, len, 0.55, 0.012, m.marble, 0, 0.9, -0.294)
+    box(g, len, 0.55, 0.012, m.tile, 0, 0.9, -0.294) // tiled splashback
     if (sink) {
       box(g, 0.62, 0.012, 0.42, m.steel, -len * 0.12, 0.895, 0.02)
       cyl(g, 0.014, 0.018, 0.3, m.brass, -len * 0.12, 0.9, -0.2, 8)
@@ -343,7 +359,7 @@ const builders: Record<string, Builder> = {
       box(g, len - 0.06, 0.008, 0.01, m.led, 0, 1.47, 0.02)
       for (let i = 1; i < doors; i++) box(g, 0.005, 0.66, 0.004, m.black, -len / 2 + (len / doors) * i, 1.51, 0.041)
     }
-    cyl(g, 0.05, 0.06, 0.18, m.ceramic, len / 2 - 0.25, 0.9, -0.15)
+    cyl(g, 0.05, 0.06, 0.18, m.stoneware, len / 2 - 0.25, 0.9, -0.15)
     blob(g, 0.08, m.leaf, len / 2 - 0.25, 1.15, -0.15, 1, 1.4, 1)
     return g
   },
@@ -362,7 +378,7 @@ const builders: Record<string, Builder> = {
     soft(g, w + 0.08, 0.28, l, 0.025, m.walnut, 0, 0.05, 0)
     soft(g, w, 0.2, l - 0.06, 0.06, m.linen, 0, 0.3, 0.02)
     soft(g, w + 0.05, 0.07, l * 0.64, 0.035, m.duvet, 0, 0.465, l / 2 - l * 0.32 + 0.02)
-    box(g, w + 0.07, 0.025, 0.46, m.oliveCloth, 0, 0.53, l / 2 - 0.32)
+    box(g, w + 0.07, 0.025, 0.46, m.knit, 0, 0.53, l / 2 - 0.32)
     for (const x of [-w / 4, w / 4]) soft(g, w / 2 - 0.12, 0.14, 0.42, 0.07, m.linen, x, 0.48, -l / 2 + 0.3, 0, -0.25)
     soft(g, 0.42, 0.3, 0.12, 0.06, m.taupe, -0.18, 0.5, -l / 2 + 0.56, 0.1, -0.3)
     soft(g, 0.36, 0.28, 0.12, 0.06, m.oliveCloth, 0.2, 0.5, -l / 2 + 0.58, -0.15, -0.3)
@@ -374,9 +390,10 @@ const builders: Record<string, Builder> = {
     const g = new THREE.Group()
     soft(g, 0.48, 0.44, 0.4, 0.015, m.walnut, 0, 0.06, 0)
     box(g, 0.44, 0.004, 0.004, m.black, 0, 0.32, 0.201)
-    cyl(g, 0.045, 0.065, 0.22, m.ceramic, -0.08, 0.5, -0.04, 16)
-    cyl(g, 0.1, 0.13, 0.17, m.linen, -0.08, 0.72, -0.04, 20)
+    cyl(g, 0.045, 0.065, 0.22, m.stoneware, -0.08, 0.5, -0.04, 16)
+    cyl(g, 0.1, 0.13, 0.17, m.shade, -0.08, 0.72, -0.04, 20)
     put(g, new THREE.CircleGeometry(0.12, 16), m.lampGlow, -0.08, 0.715, -0.04, 0, Math.PI / 2)
+    light(g, -0.08, 0.8, -0.04, 0.8, 2.8)
     box(g, 0.16, 0.04, 0.12, m.book1, 0.12, 0.5, 0.04)
     return g
   },
@@ -403,6 +420,7 @@ const builders: Record<string, Builder> = {
     box(g, 0.34, 0.22, 0.01, m.screen, -0.1, 0.787, -0.1)
     cyl(g, 0.05, 0.06, 0.32, m.black, 0.42, 0.775, -0.15, 12)
     put(g, new THREE.ConeGeometry(0.09, 0.12, 16, 1, true), m.brass, 0.42, 1.12, -0.12, 0, 0.4)
+    light(g, 0.42, 1.0, -0.06, 0.7, 2.4)
     return g
   },
 

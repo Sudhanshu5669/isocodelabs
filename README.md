@@ -193,3 +193,9 @@ no single mistake opens everything. This table is the map.
 | Forged "STOP" webhook calls | Shared secret compared in constant time; endpoint off without one | `httpapi/optout_handlers.go` |
 | A departed employee | Switching a user off ends their sessions at once and withdraws their free slots | `store/users.go` |
 | Wiping or opening production by accident | `cmd/seed` refuses `-reset` and the built-in demo password when `APP_ENV=production` | `cmd/seed/main.go` |
+
+## Credits
+
+The 3D tour's photo-scanned textures (wood, fabrics, plaster, tiles) are from [Poly Haven](https://polyhaven.com) under CC0. The white marble, vitrified floor tiles, brushed and powder-coated metal, speckled stoneware, the fabric weave and quilting, and the picture on the TV are generated in code (seamless noise), so no other assets are needed. Desktop browsers load 1024 px versions; phones and slower devices load the 512 px `*_s.webp` copies.
+
+The tour is lit as a warm early evening: a low golden sun, a dusk sky outside the windows, and a warm light at every lamp (desktops only; phones get the same palette without the extra lights).

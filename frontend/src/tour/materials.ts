@@ -5,8 +5,14 @@ import * as THREE from 'three'
 //
 // Realism comes from:
 //   - photo-scanned textures (Poly Haven, CC0) for wood, fabric, plaster,
-//     marble, rugs and terrazzo: colour + surface detail ("normal") maps,
-//     shrunk to small WebP files in /public/textures
+//     tiles, rugs and terrazzo: colour, surface detail ("normal") and
+//     roughness maps as WebP files in /public/textures, 1024 px on desktops
+//     and 512 px copies (*_s.webp) on phones and slower devices
+//   - made-in-code textures where no scan fits: white marble for worktops,
+//     60 cm vitrified floor tiles, brushed brass and steel, powder-coated
+//     black metal, speckled stoneware, and the picture on the TV
+//   - warm light: lamp shades and LED strips glow amber (the lights
+//     themselves are added by TourViewer at the anchors furniture.ts sets)
 //   - physically based settings: fabrics have sheen, ceramic and lacquer a
 //     clear coat, metals reflect the room
 //   - every textured material says how many metres one texture tile covers
@@ -23,10 +29,10 @@ const BASE = '/textures/'
 export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
   const loader = new THREE.TextureLoader()
   const cache = new Map<string, THREE.Texture>()
-  const tex = (file: string, color: boolean) => {
-    const key = file
+  const tex = (name: string, map: 'diff' | 'nor' | 'rough' | 'ao', color: boolean) => {
+    const key = `${name}_${map}${lite ? '_s' : ''}.webp`
     if (cache.has(key)) return cache.get(key)!
-    const t = loader.load(BASE + file, onLoad)
+    const t = loader.load(BASE + key, onLoad)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     t.anisotropy = anisotropy
     if (color) t.colorSpace = THREE.SRGBColorSpace
@@ -37,20 +43,25 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
   const scanned = (
     name: string,
     tile: number,
-    p: THREE.MeshPhysicalMaterialParameters & { rough?: boolean; normalStrength?: number; colorMap?: boolean } = {},
+    p: THREE.MeshPhysicalMaterialParameters & { rough?: boolean; normalStrength?: number; colorMap?: boolean; normal?: boolean; weave?: boolean } = {},
   ) => {
     // colorMap: false keeps only the surface detail (the weave, the loops) and
     // takes the colour from `color`. Fabrics look even and real that way;
     // their photos have light and dark patches that tile into a checkerboard.
-    const { rough, normalStrength = 1, colorMap = true, ...rest } = p
+    // rough: true also uses the scan's roughness map (where light catches).
+    // weave: true shades the colour with the fabric's own pattern (*_ao.webp,
+    // made from its normal map with large patches filtered out), so a sofa or
+    // a rug still reads as woven from across the room.
+    const { rough, normalStrength = 1, colorMap = true, normal = true, weave = false, ...rest } = p
     const params: THREE.MeshPhysicalMaterialParameters = {
-      map: colorMap ? tex(`${name}_diff.webp`, true) : undefined,
-      normalMap: name === 'marble_01' ? undefined : tex(`${name}_nor.webp`, false),
+      map: colorMap ? tex(name, 'diff', true) : weave ? tex(name, 'ao', false) : undefined,
+      normalMap: normal ? tex(name, 'nor', false) : undefined,
       normalScale: new THREE.Vector2(normalStrength, normalStrength),
       roughness: 0.8,
       ...rest,
     }
-    if (rough) params.roughnessMap = tex(`${name}_rough.webp`, false)
+    if (rough) params.roughnessMap = tex(name, 'rough', false)
+    if (params.sheen && !params.sheenColor) params.sheenColor = new THREE.Color(params.color ?? '#ffffff')
     const m = lite || !(rest.sheen || rest.clearcoat) ? new THREE.MeshStandardMaterial(stripPhysical(params)) : new THREE.MeshPhysicalMaterial(params)
     m.userData.tile = tile
     return m
@@ -62,58 +73,84 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
 
   const leafTex = leafTexture()
 
-  const fabric = { sheen: 0.7, sheenRoughness: 0.85, sheenColor: new THREE.Color('#ffffff') }
+  // Sheen: the soft glow cloth has at grazing angles. Kept light and tinted
+  // with the cloth's own colour (see scanned), or beds and rugs seen from
+  // above wash out to a flat pale grey.
+  const fabric = { sheen: 0.3, sheenRoughness: 0.8 }
+
+  // Brushed metal: fine streaks in the normal and roughness maps; colour comes from `color`.
+  const metal = (color: string, roughness: number, metalness = 1) =>
+    scanned('brushed', 0.25, { colorMap: false, rough: true, color, roughness, metalness, normalStrength: 0.25 })
+
+  // Tile sizes are the scans' real sizes in metres (from Poly Haven), so a
+  // floor tile or a weave is drawn at its true size.
+  // Powder-coated metal: a fine orange-peel surface with a satin sheen.
+  const powder = (color: string) =>
+    scanned('powder', 0.12, { colorMap: false, rough: true, color, roughness: 0.75, metalness: 0.35, normalStrength: 0.5 })
+
+  // The TV shows a warm painting, like a frame TV, and glows a little.
+  const tvArt = new THREE.TextureLoader().load(BASE + 'tv_art.webp', onLoad)
+  tvArt.colorSpace = THREE.SRGBColorSpace
 
   const mats = {
     // structure
-    wall: scanned('plastered_wall_04', 2.2, { color: '#e9ddcc', roughness: 0.95, normalStrength: 0.6 }),
-    slab: scanned('plastered_wall_04', 1.6, { color: '#bba892', roughness: 0.95 }),
-    ceiling: plain('#f1ece4', 1, 0, { side: THREE.BackSide }),
+    wall: scanned('white_stucco', 2, { rough: true, color: '#efe5d6', roughness: 1, normalStrength: 0.45 }),
+    slab: scanned('clay_plaster', 2, { rough: true, color: '#b9a690', roughness: 1 }),
+    ceiling: scanned('white_stucco', 2, { colorMap: false, color: '#f4efe7', roughness: 1, normalStrength: 0.25, side: THREE.BackSide }),
     oakFloor: scanned('wood_floor', 2, { rough: true, roughness: 1, normalStrength: 0.7 }),
-    stoneFloor: scanned('terrazzo_tiles', 1.2, { color: '#f2ede6', roughness: 0.45 }),
-    deck: scanned('wood_floor_deck', 1.6, { roughness: 0.85 }),
-    glass: new THREE.MeshStandardMaterial({ color: '#dfe9ea', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false }),
-    frame: plain('#2a2725', 0.45, 0.6),
+    stoneFloor: scanned('porcelain', 1.2, { rough: true, roughness: 1, normalStrength: 0.8 }),
+    bathFloor: scanned('granite_tile', 2.3, { rough: true, color: '#e4e1dc', roughness: 1 }),
+    // glazed white wall tiles: bathrooms and the kitchen splashback
+    tile: scanned('long_white_tiles', 1.27, { rough: true, color: '#fbf8f3', roughness: 1, clearcoat: 0.5, clearcoatRoughness: 0.2 }),
+    deck: scanned('wood_floor_deck', 1.8, { rough: true, roughness: 1 }),
+    glass: new THREE.MeshStandardMaterial({ color: '#e6eef0', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false }),
+    frame: powder('#2a2725'),
     // wood
-    walnut: scanned('walnut_veneer', 0.9, { roughness: 0.48, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
-    slat: scanned('walnut_veneer', 0.6, { color: '#c9a888', roughness: 0.55 }),
-    oak: scanned('oak_veneer_01', 0.9, { roughness: 0.55 }),
+    walnut: scanned('walnut_veneer', 1.8, { rough: true, roughness: 0.9, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
+    slat: scanned('walnut_veneer', 1.2, { rough: true, color: '#c9a888', roughness: 1 }),
+    oak: scanned('oak_veneer_01', 1.83, { rough: true, roughness: 1 }),
     trunk: scanned('oak_veneer_01', 0.3, { color: '#6d5847', roughness: 0.9 }),
+    // painted (lacquered) kitchen doors: the wood grain shows faintly through the paint
+    cabinet: scanned('white_oak_veneer', 0.5, { colorMap: false, color: '#3a4d45', roughness: 0.42, normalStrength: 0.35, clearcoat: 0.35, clearcoatRoughness: 0.35 }),
     // fabric
-    boucle: scanned('wool_boucle', 0.2, { colorMap: false, normalStrength: 1.4, color: '#eee6d9', roughness: 1, ...fabric }),
-    boucleShade: scanned('wool_boucle', 0.2, { colorMap: false, normalStrength: 1.4, color: '#e0d6c6', roughness: 1, ...fabric }),
-    linen: scanned('rough_linen', 0.45, { colorMap: false, color: '#f6f2ea', roughness: 1, ...fabric, sheen: 0.4 }),
-    duvet: scanned('rough_linen', 0.45, { colorMap: false, color: '#ebe3d6', roughness: 1, ...fabric, sheen: 0.4 }),
-    oliveCloth: scanned('knitted_fleece', 0.35, { colorMap: false, color: '#848564', roughness: 1, ...fabric }),
-    taupe: scanned('rough_linen', 0.4, { colorMap: false, color: '#c3b29c', roughness: 1, ...fabric }),
-    sage: scanned('rough_linen', 0.4, { colorMap: false, color: '#b2b5a2', roughness: 1, ...fabric }),
-    rug: scanned('poly_wool_herringbone', 0.5, { colorMap: false, color: '#e3d8c6', roughness: 1, normalStrength: 0.8 }),
-    rugDark: scanned('poly_wool_herringbone', 0.5, { colorMap: false, color: '#b9a991', roughness: 1 }),
+    boucle: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: '#ebe3d5', roughness: 1, ...fabric }),
+    boucleShade: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: '#ddd3c2', roughness: 1, ...fabric }),
+    shade: scanned('rough_linen', 0.2, { colorMap: false, weave: true, color: '#f3e6d2', roughness: 1, emissive: '#ffb36b', emissiveIntensity: 0.9 }),
+    linen: scanned('rough_linen', 0.35, { colorMap: false, weave: true, color: '#f1ece3', roughness: 1, normalStrength: 1.6 }),
+    duvet: scanned('waffle_pique_cotton', 0.4, { colorMap: false, weave: true, color: '#ece2d4', roughness: 1, normalStrength: 1.8 }),
+    oliveCloth: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: '#7e8160', roughness: 1, ...fabric, sheen: 0.6 }),
+    taupe: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: '#c6b59f', roughness: 1, ...fabric, sheen: 0.6 }),
+    sage: scanned('ribbed_corduroy', 0.45, { colorMap: false, weave: true, color: '#b3b7a2', roughness: 1, normalStrength: 1.8 }),
+    knit: scanned('knitted_fleece', 0.4, { colorMap: false, weave: true, color: '#8e8f6d', roughness: 1, normalStrength: 1.3 }),
+    rug: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: '#e2d6c2', roughness: 1, normalStrength: 1.6 }),
+    rugDark: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: '#bcab92', roughness: 1, normalStrength: 1.6 }),
     // stone, ceramic, metal
-    marble: scanned('marble_01', 0.9, { rough: true, roughness: 1 }),
-    stonePot: scanned('clay_plaster', 0.5, { color: '#ddd3c5', roughness: 0.95 }),
-    terracotta: scanned('clay_plaster', 0.5, { color: '#c38a6c', roughness: 0.9 }),
+    marble: scanned('marble', 1.2, { rough: true, normal: false, roughness: 1, clearcoat: 0.6, clearcoatRoughness: 0.15 }),
+    stonePot: scanned('clay_plaster', 0.6, { rough: true, color: '#ddd3c5', roughness: 1 }),
+    terracotta: scanned('clay_plaster', 0.6, { rough: true, color: '#c38a6c', roughness: 1 }),
     ceramic: plain('#f5f3ef', 0.18, 0, { clearcoat: 0.8, clearcoatRoughness: 0.1 }),
-    cabinet: plain('#3a4d45', 0.42, 0, { clearcoat: 0.35, clearcoatRoughness: 0.35 }),
-    black: plain('#1d1c1b', 0.38, 0.75),
-    brass: plain('#b8925a', 0.28, 1),
-    steel: plain('#cfd1d0', 0.3, 1),
+    // vases and lamp bases: speckled glazed clay
+    stoneware: scanned('stoneware', 0.25, { roughness: 0.35, normalStrength: 0.4, clearcoat: 0.6, clearcoatRoughness: 0.25 }),
+    black: powder('#1f1d1b'),
+    brass: scanned('brushed', 0.25, { colorMap: false, rough: true, color: '#c39a5e', roughness: 0.7, metalness: 1, normalStrength: 0.5 }),
+    steel: metal('#cfd1d0', 0.7),
     screen: plain('#0b0b0c', 0.12, 0.2, { clearcoat: 1, clearcoatRoughness: 0.05 }),
+    tv: new THREE.MeshStandardMaterial({ map: tvArt, emissiveMap: tvArt, emissive: '#ffffff', emissiveIntensity: 0.55, roughness: 0.35 }),
     mirror: plain('#e8ecec', 0.04, 1),
     // plants: real leaf shapes cut out of a small drawn texture
     leaf: new THREE.MeshStandardMaterial({ map: leafTex, color: '#8c9668', roughness: 0.7, alphaTest: 0.5, side: THREE.DoubleSide }),
     leafDark: new THREE.MeshStandardMaterial({ map: leafTex, color: '#6c7651', roughness: 0.7, alphaTest: 0.5, side: THREE.DoubleSide }),
-    // art and books
+    // art and books: canvas weave on the prints, cloth-bound covers on the books
     art1: scanned('rough_linen', 0.5, { colorMap: false, color: '#d8cbb6', roughness: 1, normalStrength: 0.5 }),
     art2: scanned('rough_linen', 0.5, { colorMap: false, color: '#9aa38c', roughness: 1, normalStrength: 0.5 }),
     art3: scanned('rough_linen', 0.5, { colorMap: false, color: '#bd7f63', roughness: 1, normalStrength: 0.5 }),
     art4: scanned('rough_linen', 0.5, { colorMap: false, color: '#ece4d6', roughness: 1, normalStrength: 0.5 }),
-    book1: plain('#7a5944', 0.85),
-    book2: plain('#cdbca3', 0.85),
-    book3: plain('#55605a', 0.85),
+    book1: scanned('rough_linen', 0.2, { colorMap: false, color: '#7a5944', roughness: 0.9, normalStrength: 0.6 }),
+    book2: scanned('rough_linen', 0.2, { colorMap: false, color: '#cdbca3', roughness: 0.9, normalStrength: 0.6 }),
+    book3: scanned('rough_linen', 0.2, { colorMap: false, color: '#55605a', roughness: 0.9, normalStrength: 0.6 }),
     // light: the warm LED strips and lamp shades glow without a light source
-    led: new THREE.MeshBasicMaterial({ color: '#ffcf96', toneMapped: false }),
-    lampGlow: new THREE.MeshBasicMaterial({ color: '#ffe9c9', toneMapped: false }),
+    led: new THREE.MeshBasicMaterial({ color: '#ffb466', toneMapped: false }),
+    lampGlow: new THREE.MeshBasicMaterial({ color: '#ffd29a', toneMapped: false }),
   }
   // Leaves keep their own texture coordinates (each leaf shows the whole drawing).
   mats.leaf.userData.foliage = true
@@ -122,6 +159,7 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
   const dispose = () => {
     Object.values(mats).forEach((m) => m.dispose())
     cache.forEach((t) => t.dispose())
+    tvArt.dispose()
     leafTex.dispose()
   }
   return { mats, dispose }

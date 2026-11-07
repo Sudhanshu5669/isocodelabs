@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { buildFurniture } from './furniture'
+import { buildFurniture, type LightAnchor } from './furniture'
 import type { Mats } from './materials'
 import type { Plan, Room, Wall } from './plans'
 
@@ -31,6 +31,8 @@ export type BuiltRoom = {
   walls: FacingWall[]
   pick: THREE.Mesh
   center: THREE.Vector3
+  /** Where this room's lamps are (the viewer puts a warm light at each). */
+  lights: (LightAnchor & { pos: THREE.Vector3 })[]
 }
 
 export type BuiltFlat = {
@@ -198,6 +200,69 @@ function buildWallPiece(wall: Wall, from: number, to: number, m: Mats, wallMat: 
   return g
 }
 
+// ---- bathroom tiles ---------------------------------------------------------------
+
+/** Bathrooms get tiled walls and a tile floor. */
+const isWet = (r: Room) => /bath|ensuite/.test(r.id)
+
+/**
+ * Lines a bathroom's walls with tiles, floor to ceiling, around its doors and
+ * windows. Each panel is one-sided and faces into the room, so from outside
+ * (the cut-away views) the near panels are invisible and only the far walls
+ * show their tiles, exactly like the walls themselves.
+ */
+function tileLining(r: Room, plan: Plan, mat: THREE.Material): THREE.Group {
+  const g = new THREE.Group()
+  const edges: { along: 'x' | 'z'; at: number; from: number; to: number; inward: number }[] = [
+    { along: 'x', at: r.z0, from: r.x0, to: r.x1, inward: 1 },
+    { along: 'x', at: r.z1, from: r.x0, to: r.x1, inward: -1 },
+    { along: 'z', at: r.x0, from: r.z0, to: r.z1, inward: 1 },
+    { along: 'z', at: r.x1, from: r.z0, to: r.z1, inward: -1 },
+  ]
+  // Solid bands of wall (from, to heights) left beside each kind of opening.
+  const bands: Record<string, [number, number][]> = {
+    door: [[2.1, WALL_H]],
+    open: [[2.4, WALL_H]],
+    window: [[0, 0.85], [2.15, WALL_H]],
+    high: [[0, 1.6], [2.15, WALL_H]],
+    slider: [[2.35, WALL_H]],
+  }
+  for (const e of edges) {
+    for (const wall of plan.walls.filter((w) => w.along === e.along && Math.abs(w.at - e.at) < 0.01 && !w.rail)) {
+      const from = Math.max(wall.from, e.from)
+      const to = Math.min(wall.to, e.to)
+      if (to - from < 0.05) continue
+      const offset = e.at + e.inward * ((wall.exterior ? EXT : INT) / 2 + 0.004)
+      const panel = (a: number, b: number, y0: number, y1: number) => {
+        if (b - a < 0.01 || y1 - y0 < 0.01) return
+        const geo = new THREE.PlaneGeometry(b - a, y1 - y0)
+        const mesh = new THREE.Mesh(geo, mat)
+        const mid = (a + b) / 2
+        if (e.along === 'x') {
+          mesh.position.set(mid, (y0 + y1) / 2, offset)
+          if (e.inward < 0) mesh.rotation.y = Math.PI // face -z
+        } else {
+          mesh.position.set(offset, (y0 + y1) / 2, mid)
+          mesh.rotation.y = e.inward > 0 ? Math.PI / 2 : -Math.PI / 2 // face +x or -x
+        }
+        g.add(mesh)
+      }
+      const openings = (wall.openings ?? [])
+        .map((o) => ({ ...o, from: Math.max(o.from, from), to: Math.min(o.to, to) }))
+        .filter((o) => o.to - o.from > 0.05)
+        .sort((a, b) => a.from - b.from)
+      let cursor = from
+      for (const o of openings) {
+        panel(cursor, o.from, 0, WALL_H)
+        for (const [y0, y1] of bands[o.kind] ?? []) panel(o.from, o.to, y0, y1)
+        cursor = o.to
+      }
+      panel(cursor, to, 0, WALL_H)
+    }
+  }
+  return g
+}
+
 // ---- the flat ---------------------------------------------------------------------
 
 export function buildFlat(plan: Plan, m: Mats, opts: { shadows: boolean }): BuiltFlat {
@@ -259,10 +324,15 @@ export function buildFlat(plan: Plan, m: Mats, opts: { shadows: boolean }): Buil
   // 3. Rooms: floor, furniture, their own slab and walls (for the one-room view).
   const rooms = new Map<string, BuiltRoom>()
   const contentSrc = new Map<string, THREE.Group>()
+  // Bathroom tiles are cut by the same plane as the interior walls, so in the
+  // whole-home view they stop where the walls stop.
+  const tileCut = (m.tile as THREE.MeshStandardMaterial).clone()
+  tileCut.clippingPlanes = [cut]
   for (const r of plan.rooms) {
     const g = new THREE.Group()
-    const floorMat = r.floor === 'wood' ? m.oakFloor : r.floor === 'deck' ? m.deck : m.stoneFloor
-    g.add(floorPlane(r, floorMat, r.floor === 'stone' ? 1 / 1.2 : 0.5))
+    const floorMat = r.floor === 'wood' ? m.oakFloor : r.floor === 'deck' ? m.deck : isWet(r) ? m.bathFloor : m.stoneFloor
+    g.add(floorPlane(r, floorMat, 1 / (floorMat.userData.tile ?? 2)))
+    if (isWet(r)) g.add(tileLining(r, plan, tileCut))
     contentSrc.set(r.id, g)
   }
   const roomAt = (x: number, z: number): Room => {
@@ -283,7 +353,14 @@ export function buildFlat(plan: Plan, m: Mats, opts: { shadows: boolean }): Buil
   }
 
   for (const r of plan.rooms) {
-    const content = mergeByMaterial(contentSrc.get(r.id)!, opts)
+    // Lamp positions first: merging keeps only meshes.
+    const src = contentSrc.get(r.id)!
+    src.updateMatrixWorld(true)
+    const lights: BuiltRoom['lights'] = []
+    src.traverse((o) => {
+      if (o.userData.light) lights.push({ ...(o.userData.light as LightAnchor), pos: o.getWorldPosition(new THREE.Vector3()) })
+    })
+    const content = mergeByMaterial(src, opts)
     root.add(track(content))
 
     const w = r.x1 - r.x0
@@ -321,7 +398,7 @@ export function buildFlat(plan: Plan, m: Mats, opts: { shadows: boolean }): Buil
     root.add(pick)
     disposables.push(pick.geometry)
 
-    rooms.set(r.id, { def: r, content, slab, walls, pick, center: rc })
+    rooms.set(r.id, { def: r, content, slab, walls, pick, center: rc, lights })
   }
 
   // 4. A ceiling for the walk-in view. It faces down, so from above it is invisible.
@@ -345,6 +422,7 @@ export function buildFlat(plan: Plan, m: Mats, opts: { shadows: boolean }): Buil
       disposables.forEach((g) => g.dispose())
       rooms.forEach((r) => (r.pick.material as THREE.Material).dispose())
       cutWall.dispose()
+      tileCut.dispose()
     },
   }
 }

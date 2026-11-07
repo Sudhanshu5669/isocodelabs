@@ -26,6 +26,11 @@ import { plans, type Layout } from './plans'
 //     runs on laptops and desktops only, and only in the one-room and
 //     walk-in views
 //   - everything is freed when the viewer closes
+//
+// The light is a warm early evening: a low golden sun through the windows,
+// and every lamp in the flat switched on (a real light at each lamp, placed
+// by furniture.ts). Phones get the same warm palette without the lamp
+// lights, which cost the most to draw.
 
 export type TourView = { mode: 'flat' | 'room' | 'walk'; roomId: string | null }
 
@@ -41,6 +46,26 @@ type Props = {
 }
 
 const DIORAMA_FOV = 26
+/** Brightness of a lamp of strength 1 (candela). */
+const LAMP = 7
+
+/** A soft dusk gradient for the sky outside the windows. */
+function duskSky(): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = 2
+  c.height = 256
+  const g = c.getContext('2d')!
+  const grad = g.createLinearGradient(0, 0, 0, 256)
+  grad.addColorStop(0, '#9fa7c4')
+  grad.addColorStop(0.45, '#e9b9a0')
+  grad.addColorStop(0.7, '#f7c98f')
+  grad.addColorStop(1, '#f2a974')
+  g.fillStyle = grad
+  g.fillRect(0, 0, 2, 256)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
 const WALK_FOV = 68
 const EYE = 1.55
 
@@ -67,10 +92,11 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, lite ? 1.25 : 1.75))
     renderer.localClippingEnabled = true
-    // AgX maps light to colour like a camera does: soft highlights, no
-    // over-saturated "video game" look.
-    renderer.toneMapping = THREE.AgXToneMapping
-    renderer.toneMappingExposure = 1.35
+    // Neutral tone mapping (the Khronos PBR standard) keeps colours true: warm
+    // lamp light stays warm and the cream stage stays cream. (AgX, used
+    // before, drained both towards grey.)
+    renderer.toneMapping = THREE.NeutralToneMapping
+    renderer.toneMappingExposure = 0.95
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -86,12 +112,19 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
 
     // ---- scene, light and the flat
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#ebe5da') // the stage colour, so effects blend into it
+    // The stage colour, so the model sits on the page. Views drawn through the
+    // effects chain (ambient occlusion) tone-map the background too, so they
+    // get a brighter value that comes out as the same warm cream.
+    const stage = new THREE.Color('#ece2d4')
+    const stageThroughEffects = new THREE.Color().setRGB(1.08, 0.97, 0.84, THREE.LinearSRGBColorSpace)
+    scene.background = stage
+    // Seen through the windows in the walk-in view: a warm dusk sky.
+    const dusk = duskSky()
     let redraw = () => {} // set once the render loop exists; textures call it when they arrive
     const pmrem = new THREE.PMREMGenerator(renderer)
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
     scene.environment = envTex
-    scene.environmentIntensity = 0.45
+    scene.environmentIntensity = 0.5 // a neutral fill, so whites stay cream under the warm lights
 
     const { mats, dispose: disposeMats } = createMaterials({
       lite,
@@ -102,8 +135,9 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     const flat: BuiltFlat = buildFlat(plan, mats, { shadows: true })
     scene.add(flat.root)
 
-    const sun = new THREE.DirectionalLight('#ffd9ad', 3.4)
-    sun.position.set(flat.center.x - 7, 13, flat.center.z + 6)
+    // Golden hour: a low, deep-amber sun that lays long warm patches through the glass.
+    const sun = new THREE.DirectionalLight('#ffd0a0', 2.7)
+    sun.position.set(flat.center.x - 9, 8.5, flat.center.z + 7)
     sun.target.position.copy(flat.center)
     sun.castShadow = true
     sun.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048)
@@ -113,12 +147,27 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     sun.shadow.normalBias = 0.02
     sun.shadow.radius = 4
     scene.add(sun, sun.target)
-    scene.add(new THREE.HemisphereLight('#fff3e2', '#a8927a', 0.3))
+    scene.add(new THREE.HemisphereLight('#fff1e0', '#a08870', lite ? 0.6 : 0.35))
     // A warm ceiling light for the walk-in view, like a lit room in the
     // evening. It stays in the scene at zero brightness in the other views,
     // so switching views never rebuilds the shaders.
-    const roomLight = new THREE.PointLight('#ffd2a1', 0, 9, 1.6)
+    const roomLight = new THREE.PointLight('#ffe7cc', 0, 9, 1.6)
     scene.add(roomLight)
+
+    // Every lamp switched on: a warm light at each lamp anchor (desktops only).
+    // They are created once; views change only their brightness, which keeps
+    // the shaders as they are. Without shadows, so each is kept short-reaching.
+    const lamps: { light: THREE.PointLight; roomId: string; base: number }[] = []
+    if (!lite) {
+      const all = [...flat.rooms.values()].flatMap((r) => r.lights.map((l) => ({ ...l, roomId: r.def.id })))
+      all.sort((a, b) => b.strength - a.strength)
+      for (const l of all.slice(0, 16)) {
+        const light = new THREE.PointLight('#ffcf9e', 0, l.reach, 2)
+        light.position.copy(l.pos)
+        scene.add(light)
+        lamps.push({ light, roomId: l.roomId, base: l.strength * LAMP })
+      }
+    }
 
     // A soft shadow on the page under the diorama, as if it stood on the table.
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.2 }))
@@ -245,7 +294,14 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
       setVis(flat.interiorWalls, nextMode !== 'room')
       flat.exteriorWalls.forEach((w) => setVis(w.group, nextMode !== 'room')) // flat view then hides the near ones
       flat.ceiling.visible = nextMode === 'walk'
-      roomLight.intensity = nextMode === 'walk' && room ? 7 : 0
+      roomLight.intensity = nextMode === 'walk' && room ? 3 : 0
+      // Lamps: all on in the whole-home view; in one room, its own lamps
+      // (with a little spill from the others when walking through).
+      for (const l of lamps) {
+        const own = l.roomId === v.roomId
+        l.light.intensity = nextMode === 'flat' ? l.base * 0.7 : own ? l.base : nextMode === 'walk' ? l.base * 0.35 : 0
+      }
+      scene.background = nextMode === 'walk' ? dusk : composer && nextMode !== 'flat' ? stageThroughEffects : stage
       if (room) roomLight.position.set(room.center.x, 2.35, room.center.z)
       flat.cut.constant = nextMode === 'walk' ? 100 : 1.15
       renderer.shadowMap.needsUpdate = true
@@ -404,6 +460,7 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
       ground.geometry.dispose()
       ;(ground.material as THREE.Material).dispose()
       envTex.dispose()
+      dusk.dispose()
       pmrem.dispose()
       renderer.dispose()
       el.remove()
