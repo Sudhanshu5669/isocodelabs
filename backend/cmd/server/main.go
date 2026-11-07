@@ -36,6 +36,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Personal data is encrypted in the database driver (internal/pii); the
+	// server will not start without the keys.
+	if err := cfg.InstallPIIKeys(); err != nil {
+		return err
+	}
 
 	// ctx is cancelled when the process gets Ctrl+C or a termination signal.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

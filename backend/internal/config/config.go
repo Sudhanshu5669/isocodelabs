@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+
+	"leadflow/internal/pii"
 )
 
 // Config holds every setting the server needs. A struct is Go's way of
@@ -56,6 +58,14 @@ type Config struct {
 	// RemindersOff stops the background reminder sender (REMINDERS=off), for
 	// example on a second server that should only answer requests.
 	RemindersOff bool
+
+	// Personal-data encryption (DPDP), see internal/pii. Both are required:
+	// the app refuses to start rather than store personal data unencrypted.
+	//   PII_ENCRYPTION_KEYS  "1:<base64 32 bytes>" (add "2:<new>" to rotate)
+	//   PII_INDEX_KEY        "<base64 32 bytes>" for the HMAC blind indexes
+	// Losing these keys means losing the data: back them up.
+	PIIEncryptionKeys string
+	PIIIndexKey       string
 }
 
 // Load reads the .env file (if there is one) and then the real environment.
@@ -83,6 +93,9 @@ func Load() (Config, error) {
 		StaticDir:            strings.TrimSpace(os.Getenv("STATIC_DIR")),
 		InboundWebhookSecret: os.Getenv("INBOUND_WEBHOOK_SECRET"),
 		RemindersOff:         strings.EqualFold(os.Getenv("REMINDERS"), "off"),
+
+		PIIEncryptionKeys: os.Getenv("PII_ENCRYPTION_KEYS"),
+		PIIIndexKey:       os.Getenv("PII_INDEX_KEY"),
 
 		TrustedProxyHeader: strings.TrimSpace(os.Getenv("TRUSTED_PROXY_HEADER")),
 		// Unset means production: forgetting the variable must never switch
@@ -113,7 +126,21 @@ func Load() (Config, error) {
 	if cfg.DatabaseURL == "" && cfg.PooledURL == "" {
 		return Config{}, errors.New("config: set DATABASE_URL or DATABASE_URL_POOLED")
 	}
+	if cfg.PIIEncryptionKeys == "" || cfg.PIIIndexKey == "" {
+		return Config{}, errors.New("config: set PII_ENCRYPTION_KEYS and PII_INDEX_KEY (generate each with: openssl rand -base64 32)")
+	}
 	return cfg, nil
+}
+
+// InstallPIIKeys checks the personal-data keys and installs them for this
+// process (see internal/pii). Every command calls it right after Load.
+func (c Config) InstallPIIKeys() error {
+	keys, err := pii.ParseKeys(c.PIIEncryptionKeys, c.PIIIndexKey)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	pii.Use(keys)
+	return nil
 }
 
 // SecureCookies reports whether cookies get the Secure flag (HTTPS only). It

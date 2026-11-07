@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"leadflow/internal/pii"
 	"leadflow/internal/store"
 	"leadflow/tests/testdb"
 )
@@ -64,13 +65,30 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// decrypted runs a query that returns one encrypted column and decrypts it.
+func decrypted(t *testing.T, kind pii.Kind, sql string, args ...any) string {
+	t.Helper()
+	var v string
+	if err := testPool.QueryRow(context.Background(), sql, args...).Scan(pii.Open(kind, &v)); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// insertUserSQL adds a staff user directly. Email and name are encrypted and
+// the email gets its blind index, exactly as the store writes them.
+const insertUserSQL = `INSERT INTO users (email, email_bidx, name, role, password_hash)
+	VALUES ($1, $2, $3, $4, 'x') RETURNING id::text`
+
+func userArgs(email, name, role string) []any {
+	return []any{pii.Seal(pii.Email, email), pii.EmailIndex(email), pii.Seal(pii.Name, name), role}
+}
+
 // newExecutive creates a sales executive and returns their id.
 func newExecutive(t *testing.T) string {
 	t.Helper()
 	var id string
-	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO users (email, name, role, password_hash)
-		VALUES ($1, 'Test Exec', 'executive', 'x') RETURNING id::text`, randHex(6)+"@test.local").Scan(&id)
+	err := testPool.QueryRow(context.Background(), insertUserSQL, userArgs(randHex(6)+"@test.local", "Test Exec", "executive")...).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +99,12 @@ func newExecutive(t *testing.T) string {
 func newLead(t *testing.T, consent bool) string {
 	t.Helper()
 	var id string
+	phone := "+91" + fmt.Sprintf("%010d", randInt())
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO leads (name, phone, source, project_id, consent)
-		VALUES ('Test Buyer', $1, 'website', 'project-1', $2) RETURNING id::text`,
-		"+91"+fmt.Sprintf("%010d", randInt()), consent).Scan(&id)
+		INSERT INTO leads (name, phone, phone_bidx, name_words, source, project_id, consent)
+		VALUES ($1, $2, $3, $4, 'website', 'project-1', $5) RETURNING id::text`,
+		pii.Seal(pii.Name, "Test Buyer"), pii.Seal(pii.Phone, phone), pii.PhoneIndex(phone),
+		pii.NameWordIndexes("Test Buyer"), consent).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}

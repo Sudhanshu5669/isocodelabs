@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leadflow/internal/auth"
+	"leadflow/internal/pii"
 	"leadflow/internal/reminders"
 )
 
@@ -138,6 +139,26 @@ func (s *seeder) id(sql string, args ...any) string {
 	return id
 }
 
+// name reads one encrypted name column (see internal/pii) and decrypts it.
+func (s *seeder) name(sql string, args ...any) string {
+	if s.err != nil {
+		return ""
+	}
+	var name string
+	if err := s.tx.QueryRow(s.ctx, sql, args...).Scan(pii.Open(pii.Name, &name)); err != nil {
+		s.err = err
+	}
+	return name
+}
+
+// user adds a staff member. Email and name are personal data, so they are
+// encrypted, and the email's blind index makes sign-in work.
+func (s *seeder) user(email, name, role string, active bool) string {
+	return s.id(`INSERT INTO users (email, email_bidx, name, role, password_hash, active)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text`,
+		pii.Seal(pii.Email, email), pii.EmailIndex(email), pii.Seal(pii.Name, name), role, s.hashed, active)
+}
+
 func (s *seeder) pick(options ...string) string { return options[s.rng.IntN(len(options))] }
 
 // at returns a time on the given day offset (relative to today, in IST) at hh:mm.
@@ -149,16 +170,14 @@ func (s *seeder) at(dayOffset, hour, min int) time.Time {
 // ---------------------------------------------------------------------------
 
 func (s *seeder) users() {
-	s.headID = s.id(`INSERT INTO users (email, name, role, password_hash)
-		VALUES ('head@companya.test', 'Meera Desai', 'head', $1) RETURNING id::text`, s.hashed)
+	s.headID = s.user("head@companya.test", "Meera Desai", "head", true)
 
 	for _, e := range []exec{
 		{name: "Rohan Mehta", email: "rohan@companya.test"},
 		{name: "Aisha Khan", email: "aisha@companya.test"},
 		{name: "Vikram Trivedi", email: "vikram@companya.test"},
 	} {
-		e.id = s.id(`INSERT INTO users (email, name, role, password_hash)
-			VALUES ($1, $2, 'executive', $3) RETURNING id::text`, e.email, e.name, s.hashed)
+		e.id = s.user(e.email, e.name, "executive", true)
 		s.execs = append(s.execs, e)
 	}
 }
@@ -361,14 +380,15 @@ func (s *seeder) leads() {
 		r.id = s.id(`
 			INSERT INTO leads (code, name, phone, source, project_id, wants, budget_min_lakh, budget_max_lakh,
 			                   language, status, consent, consent_at, opted_out, opted_out_at, assigned_to,
-			                   first_response_at, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::uuid,$16,$17,$17)
+			                   first_response_at, created_at, updated_at, phone_bidx, name_words)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::uuid,$16,$17,$17,$18,$19)
 			RETURNING id::text`,
-			r.code, r.name, phone, r.source, r.project, r.wants, minB, maxB, lang, status,
-			r.consent, consentAt, r.optedOut, optedAt, assigned, firstResp, r.created)
+			r.code, pii.Seal(pii.Name, r.name), pii.Seal(pii.Phone, phone), r.source, r.project, r.wants, minB, maxB, lang, status,
+			r.consent, consentAt, r.optedOut, optedAt, assigned, firstResp, r.created,
+			pii.PhoneIndex(phone), pii.NameWordIndexes(r.name))
 
 		s.exec(`INSERT INTO lead_touches (lead_id, source, project_id, note, created_at)
-			VALUES ($1::uuid, $2, $3, 'First enquiry', $4)`, r.id, r.source, r.project, r.created)
+			VALUES ($1::uuid, $2, $3, $4, $5)`, r.id, r.source, r.project, pii.Seal(pii.Text, "First enquiry"), r.created)
 
 		// A handful of people enquire again through another channel. The lead keeps
 		// its first source and the repeat enquiry is recorded as a touch.
@@ -377,8 +397,8 @@ func (s *seeder) leads() {
 			again := r.created.Add(time.Duration(1+s.rng.IntN(5)) * 24 * time.Hour)
 			if other != r.source && again.Before(s.now) { // never a repeat enquiry in the future
 				s.exec(`INSERT INTO lead_touches (lead_id, source, project_id, note, created_at)
-					VALUES ($1::uuid, $2, $3, 'Enquired again; merged by phone number', $4)`,
-					r.id, other, r.project, again)
+					VALUES ($1::uuid, $2, $3, $4, $5)`,
+					r.id, other, r.project, pii.Seal(pii.Text, "Enquired again; merged by phone number"), again)
 			}
 		}
 	}
@@ -511,13 +531,17 @@ func (s *seeder) reminders(l *leadRow, visitID string, start time.Time) {
 				Kind: r.kind, Language: langOr(l.lang), FirstName: strings.Fields(l.name)[0],
 				ProjectName: s.nameOf[l.project], ReraNumber: s.reraOf[l.project],
 				Address:       s.id(`SELECT address FROM projects WHERE id = $1`, l.project),
-				ExecutiveName: s.id(`SELECT u.name FROM visits v JOIN visit_slots sl ON sl.id = v.slot_id JOIN users u ON u.id = sl.executive_id WHERE v.id = $1::uuid`, visitID),
+				ExecutiveName: s.name(`SELECT u.name FROM visits v JOIN visit_slots sl ON sl.id = v.slot_id JOIN users u ON u.id = sl.executive_id WHERE v.id = $1::uuid`, visitID),
 				StartsAt:      start,
 			})
 			sentAt = r.due.Add(40 * time.Second)
 		}
+		var sealedBody any // the message names the buyer, so it is encrypted too
+		if text, ok := body.(string); ok {
+			sealedBody = pii.Seal(pii.Text, text)
+		}
 		s.exec(`INSERT INTO reminders (visit_id, kind, due_at, status, skip_reason, body, sent_at)
-			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`, visitID, r.kind, r.due, status, reason, body, sentAt)
+			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`, visitID, r.kind, r.due, status, reason, sealedBody, sentAt)
 	}
 }
 

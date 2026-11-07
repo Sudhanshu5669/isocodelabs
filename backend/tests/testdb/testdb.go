@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,17 +30,40 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/pressly/goose/v3"
 
+	"leadflow/internal/pii"
 	"leadflow/migrations"
 )
 
 // Required reports whether integration tests must run (LEADFLOW_REQUIRE_DB=1).
 func Required() bool { return os.Getenv("LEADFLOW_REQUIRE_DB") == "1" }
 
+// UseTestKeys installs fresh random personal-data keys (see internal/pii) for
+// this test process. The throw-away schema is encrypted with them, so tests
+// never need, or touch, the real keys.
+func UseTestKeys() error {
+	key := func() string {
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		return base64.StdEncoding.EncodeToString(b)
+	}
+	keys, err := pii.ParseKeys("1:"+key(), key())
+	if err != nil {
+		return err
+	}
+	pii.Use(keys)
+	return nil
+}
+
 // Open prepares an isolated schema and returns a pool that can only see it.
 // The returned cleanup function drops the schema; always call it.
 // A nil pool with a nil error means "no database configured, skip the tests".
 func Open(ctx context.Context, envFile string) (pool *pgxpool.Pool, cleanup func(), err error) {
 	noop := func() {}
+
+	// The migrations encrypt personal data, so keys come first.
+	if err := UseTestKeys(); err != nil {
+		return nil, noop, err
+	}
 
 	_ = godotenv.Load(envFile)
 	url := os.Getenv("DATABASE_URL")

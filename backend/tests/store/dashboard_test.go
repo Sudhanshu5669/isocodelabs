@@ -7,6 +7,7 @@ import (
 
 	"leadflow/internal/booking"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 	"leadflow/internal/store"
 )
 
@@ -34,10 +35,12 @@ func TestDashboardNumbers(t *testing.T) {
 			replied = created.Add(reply)
 		}
 		var id string
+		phone := uniquePhone()
 		if err := testPool.QueryRow(ctx, `
-			INSERT INTO leads (name, phone, source, project_id, consent, created_at, first_response_at)
-			VALUES ('Dash Lead', $1, $2, 'project-1', true, $3, $4) RETURNING id::text`,
-			uniquePhone(), source, created, replied).Scan(&id); err != nil {
+			INSERT INTO leads (name, phone, phone_bidx, source, project_id, consent, created_at, first_response_at)
+			VALUES ($1, $2, $3, $4, 'project-1', true, $5, $6) RETURNING id::text`,
+			pii.Seal(pii.Name, "Dash Lead"), pii.Seal(pii.Phone, phone), pii.PhoneIndex(phone),
+			source, created, replied).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		if visitStatus == "" {

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"leadflow/internal/pii"
 )
 
 // What staff see of the buyer chats: the full history on a lead's page, and
@@ -43,7 +45,8 @@ func (s *Store) LeadChats(ctx context.Context, leadID string) ([]ChatTranscript,
 	chats := []ChatTranscript{}
 	for rows.Next() {
 		var c ChatTranscript
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Language, &c.Summary, &c.HandedOffAt, &c.Flagged, &c.FlagReason, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Language, pii.OpenPtr(pii.Text, &c.Summary), &c.HandedOffAt, &c.Flagged,
+			&c.FlagReason, &c.CreatedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -92,7 +95,7 @@ func (s *Store) FlaggedChats(ctx context.Context) ([]FlaggedChat, error) {
 	out := []FlaggedChat{}
 	for rows.Next() {
 		var f FlaggedChat
-		if err := rows.Scan(&f.ID, &f.LeadID, &f.LeadCode, &f.LeadName, &f.FlagReason, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.LeadID, &f.LeadCode, pii.Open(pii.Name, &f.LeadName), &f.FlagReason, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

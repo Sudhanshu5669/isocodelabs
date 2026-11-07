@@ -11,6 +11,7 @@ import (
 
 	"leadflow/internal/leads"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // Who may see which lead:
@@ -60,8 +61,9 @@ const (
 
 // scanLeadRow fills r, then any extra destinations the caller selected after it.
 func scanLeadRow(sc scanner, r *LeadRow, extra ...any) error {
-	dest := []any{&r.ID, &r.Code, &r.Name, &r.Phone, &r.Source, &r.ProjectID, &r.ProjectName, &r.Wants, &r.Status,
-		&r.Language, &r.Consent, &r.OptedOut, &r.AssignedTo, &r.AssigneeName, &r.FirstResponseAt,
+	dest := []any{&r.ID, &r.Code, pii.Open(pii.Name, &r.Name), pii.Open(pii.Phone, &r.Phone), &r.Source, &r.ProjectID,
+		&r.ProjectName, &r.Wants, &r.Status, &r.Language, &r.Consent, &r.OptedOut, &r.AssignedTo,
+		pii.OpenPtr(pii.Name, &r.AssigneeName), &r.FirstResponseAt,
 		&r.FirstResponseSeconds, &r.DuplicateOfCode, &r.CreatedAt}
 	return sc.Scan(append(dest, extra...)...)
 }
@@ -73,9 +75,13 @@ type LeadFilter struct {
 	Status         string
 	Assignee       string // head only: "unassigned" or an executive id. Ignored for executives.
 	NeedsAttention bool
-	Query          string // matches name, lead code or phone
-	Limit          int    // default 25, at most 100
-	Offset         int
+	// Query matches part of a lead code, whole words of the name (every word
+	// typed must appear, in any order: "shah aarav" finds "Aarav Shah"), or a
+	// complete phone number. Names and phones are encrypted, so partial matches
+	// on them are not possible; see internal/pii.
+	Query  string
+	Limit  int // default 25, at most 100
+	Offset int
 }
 
 // NeedsAttentionSQL is what "needs attention" means: a lead that is still open
@@ -131,7 +137,7 @@ func (s *Store) ListLeads(ctx context.Context, v Viewer, f LeadFilter) (LeadPage
 		conds = append(conds, needsAttentionSQL)
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
-		add("(l.name ILIKE ? OR l.code ILIKE ? OR l.phone LIKE ?)", "%"+escapeLike(q)+"%")
+		conds = append(conds, searchCondition(q, &args))
 	}
 
 	where := ""
@@ -157,6 +163,29 @@ func (s *Store) ListLeads(ctx context.Context, v Viewer, f LeadFilter) (LeadPage
 		page.Leads = append(page.Leads, r)
 	}
 	return page, rows.Err()
+}
+
+// searchCondition builds the search filter and appends its values to args:
+//
+//	l.code ILIKE '%q%'                     the code is not personal, so it stays plain
+//	l.name_words @> {HMAC(word), ...}      every typed word is a word of the name
+//	l.phone_bidx = HMAC(normalised phone)  only when q is a whole phone number
+//
+// "@>" means "contains": the lead's array of name-word indexes must contain
+// every index of the typed words. A GIN index makes it fast.
+func searchCondition(q string, args *[]any) string {
+	next := func(v any) string {
+		*args = append(*args, v)
+		return fmt.Sprintf("$%d", len(*args))
+	}
+	or := []string{"l.code ILIKE " + next("%"+escapeLike(q)+"%")}
+	if words := pii.NameWordIndexes(q); len(words) > 0 {
+		or = append(or, "l.name_words @> "+next(words)+"::bytea[]")
+	}
+	if phone, err := leads.NormalizePhone(q); err == nil {
+		or = append(or, "l.phone_bidx = "+next(pii.PhoneIndex(phone)))
+	}
+	return "(" + strings.Join(or, " OR ") + ")"
 }
 
 // escapeLike makes %, _ and \ in a search term match literally.
@@ -208,7 +237,8 @@ func (s *Store) GetLead(ctx context.Context, v Viewer, id string) (LeadDetail, e
 		       l.possible_duplicate_of::text, d.name
 		`+leadRowFrom+`
 		WHERE l.id = $1::uuid AND ($2::boolean OR l.assigned_to = $3::uuid)`, id, v.IsHead, v.ID),
-		&d.LeadRow, &d.BudgetMinLakh, &d.BudgetMaxLakh, &d.Timeline, &d.ConsentAt, &d.OptedOutAt, &dupID, &dupName)
+		&d.LeadRow, &d.BudgetMinLakh, &d.BudgetMaxLakh, &d.Timeline, &d.ConsentAt, &d.OptedOutAt, &dupID,
+		pii.OpenPtr(pii.Name, &dupName))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return LeadDetail{}, leads.ErrNotFound
 	}
@@ -243,7 +273,7 @@ func (s *Store) leadTouches(ctx context.Context, leadID string) ([]models.LeadTo
 	touches := []models.LeadTouch{}
 	for rows.Next() {
 		var t models.LeadTouch
-		if err := rows.Scan(&t.ID, &t.LeadID, &t.Source, &t.ProjectID, &t.Note, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.LeadID, &t.Source, &t.ProjectID, pii.OpenPtr(pii.Text, &t.Note), &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		touches = append(touches, t)
@@ -262,7 +292,7 @@ func (s *Store) leadVisit(ctx context.Context, leadID string) (*LeadVisit, error
 		JOIN users u ON u.id = s.executive_id
 		WHERE v.lead_id = $1::uuid
 		ORDER BY (v.status = 'booked') DESC, s.starts_at DESC LIMIT 1`, leadID,
-	).Scan(&v.ID, &v.Code, &v.Status, &v.StartsAt, &v.ProjectName, &v.ExecutiveName)
+	).Scan(&v.ID, &v.Code, &v.Status, &v.StartsAt, &v.ProjectName, pii.Open(pii.Name, &v.ExecutiveName))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

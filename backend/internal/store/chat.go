@@ -9,6 +9,7 @@ import (
 
 	"leadflow/internal/leads"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // =============================================================================
@@ -62,7 +63,7 @@ type ChatSession struct {
 
 const chatSessionQuery = `
 	SELECT c.id::text, l.id::text, COALESCE(c.buyer_name, l.name), c.new_lead, c.language, p.id, p.name, p.rera_number,
-	       c.handed_off_at IS NOT NULL, COALESCE(u.name, ''),
+	       c.handed_off_at IS NOT NULL, u.name,
 	       EXISTS (SELECT 1 FROM visits v WHERE v.id = c.visit_id AND v.status = 'booked'),
 	       l.wants, l.budget_min_lakh, l.budget_max_lakh, l.timeline,
 	       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user')
@@ -74,8 +75,10 @@ const chatSessionQuery = `
 
 func scanChatSession(row pgx.Row) (ChatSession, error) {
 	var c ChatSession
-	err := row.Scan(&c.ConversationID, &c.LeadID, &c.BuyerName, &c.NewLead, &c.Language, &c.ProjectID, &c.ProjectName,
-		&c.ReraNumber, &c.HandedOff, &c.ExecutiveName, &c.HasBooking,
+	// Both names are encrypted (pii.Name). COALESCE picks the chat's own name
+	// or the lead's while still encrypted; NULL executive name reads as "".
+	err := row.Scan(&c.ConversationID, &c.LeadID, pii.Open(pii.Name, &c.BuyerName), &c.NewLead, &c.Language, &c.ProjectID,
+		&c.ProjectName, &c.ReraNumber, &c.HandedOff, pii.Open(pii.Name, &c.ExecutiveName), &c.HasBooking,
 		&c.Wants, &c.BudgetMinLakh, &c.BudgetMaxLakh, &c.Timeline, &c.UserMessages)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChatSession{}, ErrChatNotFound
@@ -97,7 +100,7 @@ func (s *Store) StartChat(ctx context.Context, in leads.Input, tokenHash []byte)
 		INSERT INTO conversations (lead_id, project_id, language, token_hash, token_expires_at, buyer_name, new_lead)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
 		RETURNING id::text`, res.Lead.ID, in.ProjectID, in.Language, tokenHash,
-		time.Now().Add(ChatTokenTTL), in.Name, res.Outcome == OutcomeCreated).Scan(&convID)
+		time.Now().Add(ChatTokenTTL), pii.Seal(pii.Name, in.Name), res.Outcome == OutcomeCreated).Scan(&convID)
 	if err != nil {
 		return ChatSession{}, err
 	}
@@ -163,7 +166,7 @@ func (s *Store) ChatMessages(ctx context.Context, conversationID string, limit i
 	out := []models.Message{}
 	for rows.Next() {
 		var m models.Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, pii.Open(pii.Text, &m.Content), &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -193,8 +196,8 @@ func (s *Store) AddChatMessages(ctx context.Context, conversationID, leadID stri
 				INSERT INTO messages (conversation_id, role, content, created_at)
 				VALUES ($1::uuid, $2, $3, $4)
 				RETURNING id::text, conversation_id::text, role, content, created_at`,
-				conversationID, m.Role, m.Content, base.Add(time.Duration(i)*time.Microsecond),
-			).Scan(&out.ID, &out.ConversationID, &out.Role, &out.Content, &out.CreatedAt); err != nil {
+				conversationID, m.Role, pii.Seal(pii.Text, m.Content), base.Add(time.Duration(i)*time.Microsecond),
+			).Scan(&out.ID, &out.ConversationID, &out.Role, pii.Open(pii.Text, &out.Content), &out.CreatedAt); err != nil {
 				return err
 			}
 			saved = append(saved, out)
@@ -262,7 +265,8 @@ func (s *Store) HandOffChat(ctx context.Context, conversationID, leadID, project
 					-- prefer executives who show this project
 					NOT EXISTS (SELECT 1 FROM visit_slots s WHERE s.executive_id = u.id AND s.project_id = $1),
 					(SELECT count(*) FROM leads l WHERE l.assigned_to = u.id AND l.status IN ('new', 'engaged', 'visit_booked')),
-					u.name
+					-- then the longest-serving (names are encrypted, so not alphabetical)
+					u.created_at, u.id
 				LIMIT 1`, projectID).Scan(&id)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return err
@@ -280,7 +284,7 @@ func (s *Store) HandOffChat(ctx context.Context, conversationID, leadID, project
 		}
 		name = ""
 		if assigned != nil {
-			return tx.QueryRow(ctx, `SELECT name FROM users WHERE id = $1::uuid`, *assigned).Scan(&name)
+			return tx.QueryRow(ctx, `SELECT name FROM users WHERE id = $1::uuid`, *assigned).Scan(pii.Open(pii.Name, &name))
 		}
 		return nil
 	})
@@ -289,7 +293,7 @@ func (s *Store) HandOffChat(ctx context.Context, conversationID, leadID, project
 
 // SetChatSummary stores the handoff summary the salesperson reads.
 func (s *Store) SetChatSummary(ctx context.Context, conversationID, summary string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE conversations SET summary = $2 WHERE id = $1::uuid`, conversationID, summary)
+	_, err := s.pool.Exec(ctx, `UPDATE conversations SET summary = $2 WHERE id = $1::uuid`, conversationID, pii.Seal(pii.Text, summary))
 	return err
 }
 

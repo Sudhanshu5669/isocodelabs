@@ -3,11 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // Lists for the staff screens. As with leads, the rule "an executive sees only
@@ -63,7 +65,8 @@ func (s *Store) StaffVisits(ctx context.Context, now time.Time, v Viewer, f Visi
 	for rows.Next() {
 		var sv StaffVisit
 		if err := rows.Scan(&sv.ID, &sv.Code, &sv.Status, &sv.StartsAt, &sv.EndsAt, &sv.ProjectID, &sv.ProjectName,
-			&sv.ExecutiveID, &sv.ExecutiveName, &sv.LeadID, &sv.LeadCode, &sv.LeadName, &sv.LeadPhone); err != nil {
+			&sv.ExecutiveID, pii.Open(pii.Name, &sv.ExecutiveName), &sv.LeadID, &sv.LeadCode,
+			pii.Open(pii.Name, &sv.LeadName), pii.Open(pii.Phone, &sv.LeadPhone)); err != nil {
 			return nil, err
 		}
 		sv.CanMark = sv.Status == models.VisitBooked && !sv.StartsAt.After(now)
@@ -101,7 +104,7 @@ func (s *Store) StaffSlots(ctx context.Context, v Viewer, projectID string, from
 		  AND ($3::text = '' OR sl.project_id = $3::text)
 		  AND sl.starts_at >= $4::timestamptz AND sl.starts_at < $5::timestamptz
 		  AND sl.status <> 'cancelled'
-		ORDER BY sl.starts_at, u.name
+		ORDER BY sl.starts_at, sl.id
 		LIMIT 500`, v.IsHead, v.ID, projectID, from, to)
 	if err != nil {
 		return nil, err
@@ -110,13 +113,23 @@ func (s *Store) StaffSlots(ctx context.Context, v Viewer, projectID string, from
 	out := []StaffSlot{}
 	for rows.Next() {
 		var ss StaffSlot
-		if err := rows.Scan(&ss.ID, &ss.ProjectID, &ss.ProjectName, &ss.ExecutiveID, &ss.ExecutiveName,
-			&ss.StartsAt, &ss.EndsAt, &ss.Status, &ss.VisitID, &ss.LeadName); err != nil {
+		if err := rows.Scan(&ss.ID, &ss.ProjectID, &ss.ProjectName, &ss.ExecutiveID, pii.Open(pii.Name, &ss.ExecutiveName),
+			&ss.StartsAt, &ss.EndsAt, &ss.Status, &ss.VisitID, pii.OpenPtr(pii.Name, &ss.LeadName)); err != nil {
 			return nil, err
 		}
 		out = append(out, ss)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Same start time: alphabetical by executive (names are encrypted, so not in SQL).
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].StartsAt.Equal(out[j].StartsAt) {
+			return out[i].StartsAt.Before(out[j].StartsAt)
+		}
+		return out[i].ExecutiveName < out[j].ExecutiveName
+	})
+	return out, nil
 }
 
 // -----------------------------------------------------------------------------

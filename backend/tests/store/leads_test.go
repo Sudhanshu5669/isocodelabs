@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"leadflow/internal/leads"
+	"leadflow/internal/pii"
 	"leadflow/internal/store"
 )
 
@@ -40,9 +41,7 @@ func ingest(t *testing.T, in leads.Input, assignTo string) store.IngestResult {
 
 func newHead(t *testing.T) string {
 	t.Helper()
-	return scalar[string](t, `
-		INSERT INTO users (email, name, role, password_hash) VALUES ($1, 'Test Head', 'head', 'x') RETURNING id::text`,
-		randHex(6)+"@test.local")
+	return scalar[string](t, insertUserSQL, userArgs(randHex(6)+"@test.local", "Test Head", "head")...)
 }
 
 func headViewer() store.Viewer          { return store.Viewer{ID: newHeadID, IsHead: true} }
@@ -174,7 +173,7 @@ func TestIngestConcurrentSamePhoneMakesOneLead(t *testing.T) {
 	if created != 1 || merged != n-1 {
 		t.Errorf("created=%d merged=%d, want 1 and %d", created, merged, n-1)
 	}
-	if rows := scalar[int](t, `SELECT count(*) FROM leads WHERE phone = $1`, clean.Phone); rows != 1 {
+	if rows := scalar[int](t, `SELECT count(*) FROM leads WHERE phone_bidx = $1`, pii.PhoneIndex(clean.Phone)); rows != 1 {
 		t.Errorf("%d lead rows for one phone number, want 1", rows)
 	}
 }
@@ -193,7 +192,7 @@ func TestIngestUnknownProjectIsAValidationError(t *testing.T) {
 	if !errors.As(err, &ve) || ve.Field != "projectId" {
 		t.Fatalf("err = %v, want a projectId validation error", err)
 	}
-	if rows := scalar[int](t, `SELECT count(*) FROM leads WHERE phone = $1`, clean.Phone); rows != 0 {
+	if rows := scalar[int](t, `SELECT count(*) FROM leads WHERE phone_bidx = $1`, pii.PhoneIndex(clean.Phone)); rows != 0 {
 		t.Error("a rejected enquiry must leave nothing behind")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"leadflow/internal/auth"
 	"leadflow/internal/httpapi"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // ---- helpers ---------------------------------------------------------------
@@ -77,7 +78,8 @@ func chatRow(t *testing.T, leadPhone string) (handedOff bool, flagged bool, summ
 	var s *string
 	err := testPool.QueryRow(context.Background(), `
 		SELECT c.handed_off_at IS NOT NULL, c.flagged, c.summary FROM conversations c
-		JOIN leads l ON l.id = c.lead_id WHERE l.phone = $1`, leadPhone).Scan(&handedOff, &flagged, &s)
+		JOIN leads l ON l.id = c.lead_id WHERE l.phone_bidx = $1`, pii.PhoneIndex(leadPhone)).
+		Scan(&handedOff, &flagged, pii.OpenPtr(pii.Text, &s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +94,7 @@ func leadPhoneOf(t *testing.T, cookie *http.Cookie) string {
 	var phone string
 	err := testPool.QueryRow(context.Background(), `
 		SELECT l.phone FROM conversations c JOIN leads l ON l.id = c.lead_id
-		WHERE c.token_hash = $1`, auth.HashToken(cookie.Value)).Scan(&phone)
+		WHERE c.token_hash = $1`, auth.HashToken(cookie.Value)).Scan(pii.Open(pii.Phone, &phone))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +205,7 @@ func TestChatBooksThroughTheModel(t *testing.T) {
 
 	// The lead is now visit_booked and assigned to that executive.
 	var status, assigned string
-	if err := testPool.QueryRow(context.Background(), `SELECT status, assigned_to::text FROM leads WHERE phone = $1`, phone).
+	if err := testPool.QueryRow(context.Background(), `SELECT status, assigned_to::text FROM leads WHERE phone_bidx = $1`, pii.PhoneIndex(phone)).
 		Scan(&status, &assigned); err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +329,7 @@ func TestLeadDetailShowsChatWithStaffNotes(t *testing.T) {
 	sendChat(t, cookie, "price?")
 
 	var leadID string
-	if err := testPool.QueryRow(context.Background(), `SELECT id::text FROM leads WHERE phone = $1`, leadPhoneOf(t, cookie)).Scan(&leadID); err != nil {
+	if err := testPool.QueryRow(context.Background(), `SELECT id::text FROM leads WHERE phone_bidx = $1`, pii.PhoneIndex(leadPhoneOf(t, cookie))).Scan(&leadID); err != nil {
 		t.Fatal(err)
 	}
 	_, head := newStaff(t, models.RoleHead)
@@ -368,10 +370,12 @@ func existingLeadWithVisit(t *testing.T) (leadID, phone10 string) {
 	phone10 = newBuyerPhone()
 	execID, _ := newUser(t, models.RoleExecutive)
 	slotID := newSlot(t, execID)
+	phone := "+91" + phone10
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO leads (name, phone, source, project_id, consent, wants, budget_max_lakh)
-		VALUES ('Real Owner', $1, 'property_portal', 'project-1', true, '2 BHK', 80) RETURNING id::text`,
-		"+91"+phone10).Scan(&leadID); err != nil {
+		INSERT INTO leads (name, phone, phone_bidx, name_words, source, project_id, consent, wants, budget_max_lakh)
+		VALUES ($1, $2, $3, $4, 'property_portal', 'project-1', true, '2 BHK', 80) RETURNING id::text`,
+		pii.Seal(pii.Name, "Real Owner"), pii.Seal(pii.Phone, phone), pii.PhoneIndex(phone),
+		pii.NameWordIndexes("Real Owner")).Scan(&leadID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := testPool.Exec(ctx, `UPDATE visit_slots SET status = 'booked' WHERE id = $1::uuid`, slotID); err != nil {

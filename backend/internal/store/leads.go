@@ -8,6 +8,7 @@ import (
 
 	"leadflow/internal/leads"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // =============================================================================
@@ -15,10 +16,15 @@ import (
 //
 // Every enquiry, from every source, goes through IngestLead:
 //
-//  1. Exact duplicate: the phone number is the identity. leads.phone is UNIQUE,
-//     so the database itself guarantees one person is never two leads, even if
-//     two enquiries arrive at the same instant. A repeat enquiry is folded into
-//     the existing lead and recorded as a "touch" with its own source.
+//  1. Exact duplicate: the phone number is the identity. The phone is stored
+//     encrypted, but its blind index (leads.phone_bidx, an HMAC of the
+//     normalised number) is UNIQUE, so the database itself still guarantees one
+//     person is never two leads, even if two enquiries arrive at the same
+//     instant. A repeat enquiry is folded into the existing lead and recorded
+//     as a "touch" with its own source.
+//
+// Name and phone are personal data (DPDP): they pass through pii.Seal on the
+// way in and pii.Open on the way out, and are never stored as plain text.
 //  2. Fuzzy duplicate: a brand-new lead whose name looks like another lead's for
 //     the same project is flagged (possible_duplicate_of). Nothing is merged
 //     automatically; the sales head confirms or dismisses it (leads_merge.go).
@@ -47,7 +53,7 @@ const leadColumns = `id::text, code, name, phone, source, project_id, wants, bud
 type scanner interface{ Scan(dest ...any) error }
 
 func scanLead(sc scanner, l *models.Lead) error {
-	return sc.Scan(&l.ID, &l.Code, &l.Name, &l.Phone, &l.Source, &l.ProjectID, &l.Wants, &l.BudgetMinLakh,
+	return sc.Scan(&l.ID, &l.Code, pii.Open(pii.Name, &l.Name), pii.Open(pii.Phone, &l.Phone), &l.Source, &l.ProjectID, &l.Wants, &l.BudgetMinLakh,
 		&l.BudgetMaxLakh, &l.Timeline, &l.Language, &l.Status, &l.Consent, &l.ConsentAt, &l.OptedOut, &l.OptedOutAt,
 		&l.AssignedTo, &l.FirstResponseAt, &l.PossibleDuplicateOf, &l.CreatedAt, &l.UpdatedAt)
 }
@@ -102,11 +108,12 @@ func (s *Store) IngestLead(ctx context.Context, in leads.Input, assignTo string)
 // reports whether a row was created; when it was not, nothing is written.
 func insertLead(ctx context.Context, tx pgx.Tx, in leads.Input, assignTo string, out *models.Lead) (created bool, err error) {
 	err = scanLead(tx.QueryRow(ctx, `
-		INSERT INTO leads (name, phone, source, project_id, wants, language, consent, consent_at, assigned_to)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::boolean, CASE WHEN $7::boolean THEN now() END, $8::uuid)
-		ON CONFLICT (phone) DO NOTHING
+		INSERT INTO leads (name, phone, phone_bidx, name_words, source, project_id, wants, language, consent, consent_at, assigned_to)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::boolean, CASE WHEN $9::boolean THEN now() END, $10::uuid)
+		ON CONFLICT (phone_bidx) DO NOTHING
 		RETURNING `+leadColumns,
-		in.Name, in.Phone, in.Source, nullable(in.ProjectID), nullable(in.Wants), in.Language, in.Consent, nullable(assignTo),
+		pii.Seal(pii.Name, in.Name), pii.Seal(pii.Phone, in.Phone), pii.PhoneIndex(in.Phone), pii.NameWordIndexes(in.Name),
+		in.Source, nullable(in.ProjectID), nullable(in.Wants), in.Language, in.Consent, nullable(assignTo),
 	), out)
 
 	switch {
@@ -125,7 +132,7 @@ func insertLead(ctx context.Context, tx pgx.Tx, in leads.Input, assignTo string,
 // not have, and a new consent. An opt-out is never cleared by a new enquiry.
 func mergeRepeatEnquiry(ctx context.Context, tx pgx.Tx, in leads.Input, note string, out *models.Lead) error {
 	var id string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM leads WHERE phone = $1 FOR UPDATE`, in.Phone).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM leads WHERE phone_bidx = $1 FOR UPDATE`, pii.PhoneIndex(in.Phone)).Scan(&id); err != nil {
 		return err
 	}
 	if err := addTouch(ctx, tx, id, in.Source, in.ProjectID, note); err != nil {
@@ -150,7 +157,7 @@ func mergeRepeatEnquiry(ctx context.Context, tx pgx.Tx, in leads.Input, note str
 func addTouch(ctx context.Context, tx pgx.Tx, leadID, source, projectID, note string) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO lead_touches (lead_id, source, project_id, note) VALUES ($1::uuid, $2, $3, $4)`,
-		leadID, source, nullable(projectID), nullable(note))
+		leadID, source, nullable(projectID), pii.SealOptional(pii.Text, note))
 	if pgError(err) != nil && pgError(err).Code == "23503" {
 		return &leads.ValidationError{Field: "projectId", Message: "That project does not exist."}
 	}
@@ -184,9 +191,11 @@ func findLookalike(ctx context.Context, tx pgx.Tx, lead *models.Lead) (id, code 
 	}
 	defer rows.Close()
 
+	// Names are encrypted, so the fuzzy comparison happens here, after
+	// decryption, exactly as before; only the database can no longer read them.
 	for rows.Next() { // newest first, so the last match is the oldest
 		var cid, ccode, cname string
-		if err := rows.Scan(&cid, &ccode, &cname); err != nil {
+		if err := rows.Scan(&cid, &ccode, pii.Open(pii.Name, &cname)); err != nil {
 			return "", "", err
 		}
 		if leads.NamesSimilar(lead.Name, cname) {

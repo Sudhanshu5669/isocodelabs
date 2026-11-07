@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"leadflow/internal/auth"
+	"leadflow/internal/pii"
 )
 
 // ErrNotFound is returned when a row does not exist.
@@ -24,14 +27,17 @@ type UserRecord struct {
 // UserByEmail finds a user by email, ignoring case, active or not. The caller
 // checks Active (after the password, so both failures take the same time).
 //
+// The email is encrypted in the database, so the lookup uses its blind index
+// (an HMAC of the lower-cased address); see internal/pii.
+//
 // Errors: ErrNotFound.
 func (s *Store) UserByEmail(ctx context.Context, email string) (UserRecord, error) {
 	var u UserRecord
 	err := s.pool.QueryRow(ctx, `
 		SELECT id::text, email, name, role, password_hash, active
 		FROM users
-		WHERE lower(email) = lower($1)`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.Active)
+		WHERE email_bidx = $1`, pii.EmailIndex(email),
+	).Scan(&u.ID, pii.Open(pii.Email, &u.Email), pii.Open(pii.Name, &u.Name), &u.Role, &u.PasswordHash, &u.Active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return UserRecord{}, ErrNotFound
 	}
@@ -59,7 +65,7 @@ func (s *Store) UserBySession(ctx context.Context, tokenHash []byte) (auth.User,
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active`, tokenHash,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
+	).Scan(&u.ID, pii.Open(pii.Email, &u.Email), pii.Open(pii.Name, &u.Name), &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.User{}, auth.ErrNoSession
 	}
@@ -92,14 +98,16 @@ type StaffUser struct {
 }
 
 // ListUsers lists the whole team, the head first, then by name.
+//
+// Names are encrypted, so Postgres cannot sort by them; the (small) team is
+// sorted here after decryption instead.
 func (s *Store) ListUsers(ctx context.Context, now time.Time) ([]StaffUser, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT u.id::text, u.email, u.name, u.role, u.active, u.created_at,
 		       (SELECT count(*) FROM leads l WHERE l.assigned_to = u.id AND l.status IN ('new', 'engaged', 'visit_booked')),
 		       (SELECT count(*) FROM visits v JOIN visit_slots sl ON sl.id = v.slot_id
 		         WHERE sl.executive_id = u.id AND v.status = 'booked' AND sl.starts_at > $1::timestamptz)
-		FROM users u
-		ORDER BY u.role = 'head' DESC, u.name`, now)
+		FROM users u`, now)
 	if err != nil {
 		return nil, err
 	}
@@ -107,12 +115,22 @@ func (s *Store) ListUsers(ctx context.Context, now time.Time) ([]StaffUser, erro
 	out := []StaffUser{}
 	for rows.Next() {
 		var u StaffUser
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Active, &u.CreatedAt, &u.OpenLeads, &u.UpcomingVisits); err != nil {
+		if err := rows.Scan(&u.ID, pii.Open(pii.Email, &u.Email), pii.Open(pii.Name, &u.Name), &u.Role, &u.Active,
+			&u.CreatedAt, &u.OpenLeads, &u.UpcomingVisits); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if hi, hj := out[i].Role == auth.RoleHead, out[j].Role == auth.RoleHead; hi != hj {
+			return hi
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, nil
 }
 
 // CreateUser adds a team member. passwordHash must already be a bcrypt hash.
@@ -121,10 +139,10 @@ func (s *Store) ListUsers(ctx context.Context, now time.Time) ([]StaffUser, erro
 func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash string) (StaffUser, error) {
 	var u StaffUser
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users (email, name, role, password_hash) VALUES ($1, $2, $3, $4)
+		INSERT INTO users (email, email_bidx, name, role, password_hash) VALUES ($1, $2, $3, $4, $5)
 		RETURNING id::text, email, name, role, active, created_at`,
-		email, name, role, passwordHash,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Active, &u.CreatedAt)
+		pii.Seal(pii.Email, email), pii.EmailIndex(email), pii.Seal(pii.Name, name), role, passwordHash,
+	).Scan(&u.ID, pii.Open(pii.Email, &u.Email), pii.Open(pii.Name, &u.Name), &u.Role, &u.Active, &u.CreatedAt)
 	if constraintName(err) == "users_email_key" {
 		return StaffUser{}, ErrEmailTaken
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 	"leadflow/internal/reminders"
 	"leadflow/internal/store"
 )
@@ -52,7 +53,7 @@ func (r *recorder) Send(_ context.Context, phone, body string) error {
 func TestWorkerSendsDueReminderWithReraNumber(t *testing.T) {
 	requireDB(t)
 	visit, leadID, start := bookedVisit(t, 300, true)
-	phone := scalar[string](t, `SELECT phone FROM leads WHERE id = $1::uuid`, leadID)
+	phone := decrypted(t, pii.Phone, `SELECT phone FROM leads WHERE id = $1::uuid`, leadID)
 
 	msgr := &recorder{sent: map[string]string{}}
 	w := &reminders.Worker{Store: testStore, Messenger: msgr, PublicURL: "https://visits.example.com",
@@ -79,7 +80,7 @@ func TestWorkerSendsDueReminderWithReraNumber(t *testing.T) {
 			t.Errorf("message missing %q: %s", want, body)
 		}
 	}
-	stored := scalar[string](t, `SELECT body FROM reminders WHERE visit_id = $1::uuid AND kind = 'day_before'`, visit.ID)
+	stored := decrypted(t, pii.Text, `SELECT body FROM reminders WHERE visit_id = $1::uuid AND kind = 'day_before'`, visit.ID)
 	if stored != body {
 		t.Error("the sent text must be kept on the reminder row for the staff log")
 	}
@@ -179,7 +180,7 @@ func TestOptOutByVisitCodeAndPhoneSkipQueuedReminders(t *testing.T) {
 	}
 
 	visit2, lead2, _ := bookedVisit(t, 345, true)
-	phone := scalar[string](t, `SELECT phone FROM leads WHERE id = $1::uuid`, lead2)
+	phone := decrypted(t, pii.Phone, `SELECT phone FROM leads WHERE id = $1::uuid`, lead2)
 	found, err := testStore.OptOutByPhone(ctx, phone)
 	if err != nil || !found {
 		t.Fatalf("opt out by phone: found=%v err=%v", found, err)

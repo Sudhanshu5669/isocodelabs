@@ -30,6 +30,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Step 2 of the DPDP migrations (00006_pii_encrypt.go) encrypts existing
+	// rows, so the personal-data keys must be installed first.
+	if err := cfg.InstallPIIKeys(); err != nil {
+		return err
+	}
 
 	// Migrations use the session-mode connection: schema changes can misbehave
 	// through the transaction pooler.

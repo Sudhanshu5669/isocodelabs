@@ -3,6 +3,8 @@ package seed
 import (
 	"fmt"
 	"time"
+
+	"leadflow/internal/pii"
 )
 
 // Hand-made test scenarios, on top of the random sample leads. Each one sets
@@ -69,18 +71,19 @@ func (s *seeder) scenarioLead(code, name, source, project, wants, lang, status s
 	id := s.id(`
 		INSERT INTO leads (code, name, phone, source, project_id, wants, budget_min_lakh, budget_max_lakh,
 		                   language, status, consent, consent_at, opted_out, opted_out_at, assigned_to,
-		                   first_response_at, timeline, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::uuid,$16,$17,$18,$18)
+		                   first_response_at, timeline, created_at, updated_at, phone_bidx, name_words)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::uuid,$16,$17,$18,$18,$19,$20)
 		RETURNING id::text`,
-		code, name, phone, source, proj, want, bMin, bMax, lang, status, consent, consentAt, optedOut, optedAt,
-		assignee, firstResp, tl, created)
+		code, pii.Seal(pii.Name, name), pii.Seal(pii.Phone, phone), source, proj, want, bMin, bMax, lang, status,
+		consent, consentAt, optedOut, optedAt, assignee, firstResp, tl, created,
+		pii.PhoneIndex(phone), pii.NameWordIndexes(name))
 
 	note := "First enquiry"
 	if source == "website" {
 		note = "Started a website chat"
 	}
 	s.exec(`INSERT INTO lead_touches (lead_id, source, project_id, note, created_at)
-		VALUES ($1::uuid, $2, $3, $4, $5)`, id, source, proj, note, created)
+		VALUES ($1::uuid, $2, $3, $4, $5)`, id, source, proj, pii.Seal(pii.Text, note), created)
 
 	return &leadRow{id: id, code: code, name: name, source: source, project: project, wants: wants, lang: lang,
 		created: created, responded: firstReply >= 0, consent: consent, optedOut: optedOut, assigned: assigned}
@@ -88,7 +91,7 @@ func (s *seeder) scenarioLead(code, name, source, project, wants, lang, status s
 
 func (s *seeder) touch(l *leadRow, source, note string, at time.Time) {
 	s.exec(`INSERT INTO lead_touches (lead_id, source, project_id, note, created_at)
-		VALUES ($1::uuid, $2, NULLIF($3, ''), $4, $5)`, l.id, source, l.project, note, at)
+		VALUES ($1::uuid, $2, NULLIF($3, ''), $4, $5)`, l.id, source, l.project, pii.Seal(pii.Text, note), at)
 }
 
 // chat stores one AI conversation with its messages.
@@ -99,7 +102,7 @@ func (s *seeder) chat(l *leadRow, c chatSpec) string {
 		last = c.started.Add(time.Duration(c.lines[len(c.lines)-1].at) * time.Second)
 	}
 	if c.summary != "" {
-		summary = c.summary
+		summary = pii.Seal(pii.Text, c.summary)
 	}
 	if c.handoff {
 		handedOff = last
@@ -124,10 +127,10 @@ func (s *seeder) chat(l *leadRow, c chatSpec) string {
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10, $11, $12, $13, $14::uuid)
 		RETURNING id::text`,
 		l.id, c.lang, summary, handedOff, c.flag != "", flagReason, reviewedAt, reviewedBy, c.started, project,
-		last, l.name, c.newLead, visit)
+		last, pii.Seal(pii.Name, l.name), c.newLead, visit)
 	for _, m := range c.lines {
 		s.exec(`INSERT INTO messages (conversation_id, role, content, created_at) VALUES ($1::uuid, $2, $3, $4)`,
-			conv, m.role, m.text, c.started.Add(time.Duration(m.at)*time.Second))
+			conv, m.role, pii.Seal(pii.Text, m.text), c.started.Add(time.Duration(m.at)*time.Second))
 	}
 	return conv
 }
@@ -358,8 +361,7 @@ func (s *seeder) scenarios() {
 
 	// 21. A switched-off executive who still has leads and an upcoming visit:
 	//     the head must hand these to someone else.
-	kunal := s.id(`INSERT INTO users (email, name, role, password_hash, active)
-		VALUES ('kunal@companya.test', 'Kunal Shah', 'executive', $1, true) RETURNING id::text`, s.hashed)
+	kunal := s.user("kunal@companya.test", "Kunal Shah", "executive", true)
 	start := s.at(3, 13, 0)
 	if start.Weekday() == time.Sunday {
 		start = start.Add(24 * time.Hour)

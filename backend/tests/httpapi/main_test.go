@@ -22,6 +22,7 @@ import (
 	"leadflow/internal/auth"
 	"leadflow/internal/config"
 	"leadflow/internal/httpapi"
+	"leadflow/internal/pii"
 	"leadflow/tests/testdb"
 )
 
@@ -113,8 +114,8 @@ func newUser(t *testing.T, role string) (id, email string) {
 	}
 	email = randHex(6) + "@test.local"
 	err = testPool.QueryRow(context.Background(), `
-		INSERT INTO users (email, name, role, password_hash) VALUES ($1, 'Test User', $2, $3) RETURNING id::text`,
-		email, role, hash).Scan(&id)
+		INSERT INTO users (email, email_bidx, name, role, password_hash) VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
+		pii.Seal(pii.Email, email), pii.EmailIndex(email), pii.Seal(pii.Name, "Test User"), role, hash).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,8 +154,10 @@ func newLead(t *testing.T, assignedTo string) (id, phone string) {
 		assigned = assignedTo
 	}
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO leads (name, phone, source, project_id, consent, assigned_to)
-		VALUES ('Asha Sharma', $1, 'website', 'project-1', true, $2::uuid) RETURNING id::text`, phone, assigned).Scan(&id)
+		INSERT INTO leads (name, phone, phone_bidx, name_words, source, project_id, consent, assigned_to)
+		VALUES ($1, $2, $3, $4, 'website', 'project-1', true, $5::uuid) RETURNING id::text`,
+		pii.Seal(pii.Name, "Asha Sharma"), pii.Seal(pii.Phone, phone), pii.PhoneIndex(phone),
+		pii.NameWordIndexes("Asha Sharma"), assigned).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}

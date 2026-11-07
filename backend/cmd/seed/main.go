@@ -51,6 +51,9 @@ func run(reset bool) error {
 	if err != nil {
 		return err
 	}
+	if err := cfg.InstallPIIKeys(); err != nil {
+		return err
+	}
 
 	dev := cfg.AppEnv == "development"
 	if reset && !dev {

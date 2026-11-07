@@ -8,6 +8,7 @@ import (
 
 	"leadflow/internal/leads"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // A lead flagged as a possible duplicate (possible_duplicate_of) waits here for
@@ -140,7 +141,7 @@ func moveChildren(ctx context.Context, tx pgx.Tx, keepID string, drop models.Lea
 		{`UPDATE leads SET possible_duplicate_of = $1::uuid WHERE possible_duplicate_of = $2::uuid AND id <> $1::uuid`, []any{keepID, drop.ID}},
 		// A trail for later: the duplicate's own code no longer exists after the merge.
 		{`INSERT INTO lead_touches (lead_id, source, project_id, note) VALUES ($1::uuid, $2, $3, $4)`,
-			[]any{keepID, drop.Source, drop.ProjectID, "Merged duplicate " + drop.Code}},
+			[]any{keepID, drop.Source, drop.ProjectID, pii.Seal(pii.Text, "Merged duplicate "+drop.Code)}},
 	}
 	for _, st := range steps {
 		if _, err := tx.Exec(ctx, st.sql, st.args...); err != nil {

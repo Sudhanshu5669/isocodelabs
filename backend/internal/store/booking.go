@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"leadflow/internal/booking"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // =============================================================================
@@ -49,7 +51,7 @@ func (s *Store) FreeSlots(ctx context.Context, now time.Time, projectID string, 
 		FROM visit_slots s
 		JOIN users u ON u.id = s.executive_id
 		WHERE s.project_id = $1 AND s.status = 'open' AND s.starts_at >= $2 AND s.starts_at < $3
-		ORDER BY s.starts_at, u.name`, projectID, from, to)
+		ORDER BY s.starts_at, s.id`, projectID, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -58,12 +60,23 @@ func (s *Store) FreeSlots(ctx context.Context, now time.Time, projectID string, 
 	slots := []FreeSlot{}
 	for rows.Next() {
 		var f FreeSlot
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.StartsAt, &f.EndsAt, &f.ExecutiveID, &f.ExecutiveName); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.StartsAt, &f.EndsAt, &f.ExecutiveID, pii.Open(pii.Name, &f.ExecutiveName)); err != nil {
 			return nil, err
 		}
 		slots = append(slots, f)
 	}
-	return slots, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Same start time: alphabetical by executive. Names are encrypted, so this
+	// tie-break happens here rather than in SQL.
+	sort.SliceStable(slots, func(i, j int) bool {
+		if !slots[i].StartsAt.Equal(slots[j].StartsAt) {
+			return slots[i].StartsAt.Before(slots[j].StartsAt)
+		}
+		return slots[i].ExecutiveName < slots[j].ExecutiveName
+	})
+	return slots, nil
 }
 
 // BookSlot books a free slot for a lead. It either fully succeeds or changes nothing.
@@ -287,7 +300,7 @@ func (s *Store) VisitDetailByCode(ctx context.Context, now time.Time, code strin
 		WHERE v.code = $1`, code,
 	).Scan(&d.ID, &d.Code, &d.Status, &d.SlotID, &d.StartsAt, &d.EndsAt,
 		&d.ProjectID, &d.ProjectName, &d.ReraNumber, &d.Address, &d.Latitude, &d.Longitude,
-		&d.ExecutiveName, &leadName, &d.OptedOut)
+		pii.Open(pii.Name, &d.ExecutiveName), pii.Open(pii.Name, &leadName), &d.OptedOut)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return VisitDetail{}, booking.ErrVisitNotFound
 	}
@@ -387,7 +400,7 @@ func insertVisit(ctx context.Context, tx pgx.Tx, leadID, slotID string) (models.
 		INSERT INTO visits (code, lead_id, slot_id) VALUES ($1, $2::uuid, $3::uuid)
 		RETURNING id::text, code, lead_id::text, slot_id::text, status, notes, outcome_at, created_at, updated_at`,
 		code, leadID, slotID,
-	).Scan(&v.ID, &v.Code, &v.LeadID, &v.SlotID, &v.Status, &v.Notes, &v.OutcomeAt, &v.CreatedAt, &v.UpdatedAt)
+	).Scan(&v.ID, &v.Code, &v.LeadID, &v.SlotID, &v.Status, pii.OpenPtr(pii.Text, &v.Notes), &v.OutcomeAt, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		// The database's own unique indexes are the last line of defence.
 		switch constraintName(err) {
@@ -454,7 +467,7 @@ func visitByID(ctx context.Context, q rowQuerier, visitID string) (models.Visit,
 	err := q.QueryRow(ctx, `
 		SELECT id::text, code, lead_id::text, slot_id::text, status, notes, outcome_at, created_at, updated_at
 		FROM visits WHERE id = $1::uuid`, visitID,
-	).Scan(&v.ID, &v.Code, &v.LeadID, &v.SlotID, &v.Status, &v.Notes, &v.OutcomeAt, &v.CreatedAt, &v.UpdatedAt)
+	).Scan(&v.ID, &v.Code, &v.LeadID, &v.SlotID, &v.Status, pii.OpenPtr(pii.Text, &v.Notes), &v.OutcomeAt, &v.CreatedAt, &v.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.Visit{}, booking.ErrVisitNotFound
 	}

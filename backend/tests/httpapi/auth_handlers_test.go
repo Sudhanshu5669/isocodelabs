@@ -13,6 +13,7 @@ import (
 	"leadflow/internal/config"
 	"leadflow/internal/httpapi"
 	"leadflow/internal/models"
+	"leadflow/internal/pii"
 )
 
 // ---- unit tests (no database) ----------------------------------------------
@@ -87,7 +88,7 @@ func TestLoginFailuresAllLookTheSame(t *testing.T) {
 	requireDB(t)
 	_, email := newUser(t, models.RoleExecutive)
 	_, disabled := newUser(t, models.RoleExecutive)
-	if _, err := testPool.Exec(context.Background(), `UPDATE users SET active = false WHERE email = $1`, disabled); err != nil {
+	if _, err := testPool.Exec(context.Background(), `UPDATE users SET active = false WHERE email_bidx = $1`, pii.EmailIndex(disabled)); err != nil {
 		t.Fatal(err)
 	}
 

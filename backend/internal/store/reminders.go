@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"leadflow/internal/leads"
+	"leadflow/internal/pii"
 )
 
 // =============================================================================
@@ -80,8 +81,8 @@ func (s *Store) ProcessDueReminders(ctx context.Context, now time.Time, limit in
 				LIMIT 1
 				FOR UPDATE OF r SKIP LOCKED`, now,
 			).Scan(&d.ID, &d.Kind, &d.DueAt, &d.VisitCode, &d.VisitStatus, &d.StartsAt,
-				&d.LeadName, &d.Phone, &d.Language, &d.Consent, &d.OptedOut,
-				&d.ProjectName, &d.ReraNumber, &d.Address, &d.ExecutiveName)
+				pii.Open(pii.Name, &d.LeadName), pii.Open(pii.Phone, &d.Phone), &d.Language, &d.Consent, &d.OptedOut,
+				&d.ProjectName, &d.ReraNumber, &d.Address, pii.Open(pii.Name, &d.ExecutiveName))
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil // nothing due
 			}
@@ -97,7 +98,7 @@ func (s *Store) ProcessDueReminders(ctx context.Context, now time.Time, limit in
 			}
 			_, err = tx.Exec(ctx, `
 				UPDATE reminders SET status = $2, skip_reason = $3, body = $4, sent_at = $5
-				WHERE id = $1::uuid`, d.ID, res.Status, nullable(res.SkipReason), nullable(res.Body), sentAt)
+				WHERE id = $1::uuid`, d.ID, res.Status, nullable(res.SkipReason), pii.SealOptional(pii.Text, res.Body), sentAt)
 			return err
 		})
 		if err != nil {
@@ -160,8 +161,9 @@ func (s *Store) ReminderLog(ctx context.Context, v Viewer, f ReminderFilter) ([]
 	out := []ReminderLogEntry{}
 	for rows.Next() {
 		var e ReminderLogEntry
-		if err := rows.Scan(&e.ID, &e.Kind, &e.DueAt, &e.Status, &e.SkipReason, &e.Body, &e.SentAt,
-			&e.VisitID, &e.VisitStartsAt, &e.LeadID, &e.LeadCode, &e.LeadName, &e.ProjectName, &e.ExecutiveName); err != nil {
+		if err := rows.Scan(&e.ID, &e.Kind, &e.DueAt, &e.Status, &e.SkipReason, pii.OpenPtr(pii.Text, &e.Body), &e.SentAt,
+			&e.VisitID, &e.VisitStartsAt, &e.LeadID, &e.LeadCode, pii.Open(pii.Name, &e.LeadName), &e.ProjectName,
+			pii.Open(pii.Name, &e.ExecutiveName)); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -212,7 +214,8 @@ func (s *Store) OptOutByPhone(ctx context.Context, phone string) (bool, error) {
 	found := false
 	err := s.withTx(ctx, func(tx pgx.Tx) error {
 		var leadID string
-		err := tx.QueryRow(ctx, `SELECT id::text FROM leads WHERE phone = $1`, phone).Scan(&leadID)
+		// The phone is encrypted; its blind index finds the lead without decrypting anything.
+		err := tx.QueryRow(ctx, `SELECT id::text FROM leads WHERE phone_bidx = $1`, pii.PhoneIndex(phone)).Scan(&leadID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
