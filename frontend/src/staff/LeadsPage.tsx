@@ -90,7 +90,7 @@ export default function LeadsPage() {
         <input
           className="input filters-search"
           type="search"
-          placeholder="Search name, phone or LD-code"
+          placeholder="Search a name, full phone number or LD-code"
           aria-label="Search leads"
           value={search}
           maxLength={80}
