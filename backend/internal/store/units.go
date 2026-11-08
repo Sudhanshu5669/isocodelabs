@@ -15,7 +15,7 @@ type Unit struct {
 	Locality            string `json:"locality"`
 	ReraNumber          string `json:"reraNumber"`
 	BHK                 int    `json:"bhk"`
-	Layout              string `json:"layout"` // which 3D floor plan the website draws
+	Layout              *string `json:"layout"` // which 3D floor plan the website draws; null = no 3D model yet
 	Tower               string `json:"tower"`
 	Floor               int    `json:"floor"`
 	AreaSqft            int    `json:"areaSqft"`

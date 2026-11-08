@@ -115,6 +115,6 @@ func addUnits() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Added", n, "sample flats.")
+	fmt.Println("Added or updated", n, "sample flats.")
 	return nil
 }

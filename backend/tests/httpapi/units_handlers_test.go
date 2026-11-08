@@ -35,6 +35,26 @@ func TestCatalogueListsAvailableUnitsWithFacts(t *testing.T) {
 	wantStatus(t, call(t, http.MethodGet, "/api/units/not-a-code", nil, nil), http.StatusNotFound)
 }
 
+// A flat whose 3D model is not ready has no layout: it is still listed and
+// opens, and says so with "layout": null so the website shows photos instead.
+func TestUnitWithoutThreeDModel(t *testing.T) {
+	requireDB(t)
+	code := "Y-" + randDigits(4)
+	if _, err := testPool.Exec(context.Background(), `
+		INSERT INTO units (code, project_id, bhk, layout, tower, floor, area_sqft, facing, indicative_price_lakh)
+		VALUES ($1, 'project-1', 2, NULL, 'Y', 6, 1100, 'West', 70)`, code); err != nil {
+		t.Fatal(err)
+	}
+	one := call(t, http.MethodGet, "/api/units/"+code, nil, nil)
+	wantStatus(t, one, http.StatusOK)
+	if !strings.Contains(one.Body.String(), `"layout":null`) {
+		t.Errorf("a flat without a 3D model must say layout null: %s", one.Body.String())
+	}
+	if _, err := testPool.Exec(context.Background(), `UPDATE units SET layout = '4bhk' WHERE code = $1`, code); err == nil {
+		t.Error("only known floor plans may be set as a layout")
+	}
+}
+
 func randDigits(n int) string {
 	const digits = "0123456789"
 	h := randHex(n)
