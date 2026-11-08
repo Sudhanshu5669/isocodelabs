@@ -213,3 +213,9 @@ The user asked for a scrollable listings page with sort/filter and, on click, a 
 - Migrations 00005 (add twins) → 00006 (Go: encrypt in batches) → 00007 (drop plaintext, rename, constraints). All reversible; `tests/migrations` round-trips them. Applied to the live Supabase DB on 2026-11-07.
 - Keys: `PII_ENCRYPTION_KEYS` and `PII_INDEX_KEY` in `backend/.env` (generated locally, never printed). Required; back them up. Production needs them as platform secrets.
 - Known flaky test: `TestSpoofedForwardedForDoesNotBypassLoginLimit` fails when the 11 logins take over 6 s (limiter refill) under parallel DB load; it passes alone.
+
+## 12. Per-flat photos and 3D models (2026-11-07)
+
+- Every flat has 4 Codex-generated photos in `frontend/public/images/flats/<code>/` (living, bedroom, kitchen, balcony), made from its real data: light from its facing, view from its floor, style from its project, its own palette and signature piece. `catalogue.ts` `photosFor()` falls back to the shared photos for a flat without its own.
+- `tour/themes.ts` dresses each flat's 3D model to match its photos: palette (upholstery, cushions, throws, kitchen, rugs, walls, art), project finish (Project 1: pale stone floors, oak; Project 2: porcelain, walnut), light by facing (morning, evening, midday, soft), the walk-in window view by floor (garden, rooftops, skyline). Towers B and D use mirror-image plans (`plans.ts` `mirrorPlan`, camera orbits from the south-west). 3 BHK balconies have a jhula on a stand. D-203 is the "green home" with extra plants.
+- Flats can have no 3D model: `units.layout` is nullable (migration 00008). B-1006 and C-801 are seeded that way; their page leads with photos ("3D model coming soon") and the catalogue badge says "Photos only". `go run ./cmd/seed -units` now also refreshes the sample flats' layouts.
