@@ -547,3 +547,11 @@
     transform: none;
   }
 }
+
+/* A flat without a 3D model yet: a quieter badge, so the difference is clear. */
+.cat-badge-quiet {
+  background: rgba(20, 18, 16, 0.62);
+  color: var(--ink);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}

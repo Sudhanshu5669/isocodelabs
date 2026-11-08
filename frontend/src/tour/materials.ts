@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { FlatTheme } from './themes'
 
 // Every surface in the flats uses one of these shared materials. Sharing is
 // what lets buildFlat merge all pieces of the same material into one mesh.
@@ -22,11 +23,17 @@ import * as THREE from 'three'
 
 export type Mats = ReturnType<typeof createMaterials>['mats']
 
-type Opts = { lite: boolean; anisotropy: number; onLoad: () => void }
+// Each flat is dressed to match its photos (themes.ts): its palette colours
+// the upholstery, cushions, throws, kitchen, rugs, walls and art, and its
+// project sets the floors and wood. Project 1 (warm): pale terrazzo floors and
+// light oak; Project 2 (modern): large matte porcelain tiles and walnut.
+type Opts = { lite: boolean; anisotropy: number; onLoad: () => void; theme: FlatTheme }
 
 const BASE = '/textures/'
 
-export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
+export function createMaterials({ lite, anisotropy, onLoad, theme }: Opts) {
+  const c = theme.palette
+  const warm = theme.style === 'warm'
   const loader = new THREE.TextureLoader()
   const cache = new Map<string, THREE.Texture>()
   const tex = (name: string, map: 'diff' | 'nor' | 'rough' | 'ao', color: boolean) => {
@@ -94,10 +101,13 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
 
   const mats = {
     // structure
-    wall: scanned('white_stucco', 2, { rough: true, color: '#efe5d6', roughness: 1, normalStrength: 0.45 }),
+    wall: scanned('white_stucco', 2, { rough: true, color: c.wall, roughness: 1, normalStrength: 0.45 }),
     slab: scanned('clay_plaster', 2, { rough: true, color: '#b9a690', roughness: 1 }),
     ceiling: scanned('white_stucco', 2, { colorMap: false, color: '#f4efe7', roughness: 1, normalStrength: 0.25, side: THREE.BackSide }),
-    oakFloor: scanned('wood_floor', 2, { rough: true, roughness: 1, normalStrength: 0.7 }),
+    // living rooms and bedrooms (plans call this floor "wood")
+    oakFloor: warm
+      ? scanned('marble', 0.7, { rough: true, normal: false, color: '#efe6d8', roughness: 1, clearcoat: 0.3, clearcoatRoughness: 0.35 }) // pale terrazzo-like stone
+      : scanned('porcelain', 2.4, { rough: true, color: '#e9e4db', roughness: 1, normalStrength: 0.5 }), // 120 cm matte tiles
     stoneFloor: scanned('porcelain', 1.2, { rough: true, roughness: 1, normalStrength: 0.8 }),
     bathFloor: scanned('granite_tile', 2.3, { rough: true, color: '#e4e1dc', roughness: 1 }),
     // glazed white wall tiles: bathrooms and the kitchen splashback
@@ -106,24 +116,29 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
     glass: new THREE.MeshStandardMaterial({ color: '#e6eef0', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false }),
     frame: powder('#2a2725'),
     // wood
-    walnut: scanned('walnut_veneer', 1.8, { rough: true, roughness: 0.9, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
-    slat: scanned('walnut_veneer', 1.2, { rough: true, color: '#c9a888', roughness: 1 }),
+    // "walnut" is the flat's main joinery wood: light oak in Project 1, walnut in Project 2
+    walnut: warm
+      ? scanned('oak_veneer_01', 1.83, { rough: true, roughness: 0.9, clearcoat: 0.2, clearcoatRoughness: 0.4 })
+      : scanned('walnut_veneer', 1.8, { rough: true, roughness: 0.9, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
+    slat: scanned('walnut_veneer', 1.2, { rough: true, color: warm ? '#e2c9a8' : '#c9a888', roughness: 1 }),
     oak: scanned('oak_veneer_01', 1.83, { rough: true, roughness: 1 }),
     trunk: scanned('oak_veneer_01', 0.3, { color: '#6d5847', roughness: 0.9 }),
-    // painted (lacquered) kitchen doors: the wood grain shows faintly through the paint
-    cabinet: scanned('white_oak_veneer', 0.5, { colorMap: false, color: '#3a4d45', roughness: 0.42, normalStrength: 0.35, clearcoat: 0.35, clearcoatRoughness: 0.35 }),
-    // fabric
-    boucle: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: '#ebe3d5', roughness: 1, ...fabric }),
-    boucleShade: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: '#ddd3c2', roughness: 1, ...fabric }),
+    // painted (lacquered) kitchen doors in the flat's colour: the grain shows faintly through
+    cabinet: scanned('white_oak_veneer', 0.5, { colorMap: false, color: c.cabinet, roughness: 0.42, normalStrength: 0.35, clearcoat: 0.35, clearcoatRoughness: 0.35 }),
+    // fabric: the main upholstery, and the flat's signature armchair
+    boucle: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: c.sofa, roughness: 1, ...fabric }),
+    boucleShade: scanned('wool_boucle', 0.45, { colorMap: false, weave: true, normalStrength: 2, color: c.sofaShade, roughness: 1, ...fabric }),
+    chairCloth: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: c.chair, roughness: 1, ...fabric, sheen: 0.5 }),
     shade: scanned('rough_linen', 0.2, { colorMap: false, weave: true, color: '#f3e6d2', roughness: 1, emissive: '#ffb36b', emissiveIntensity: 0.9 }),
     linen: scanned('rough_linen', 0.35, { colorMap: false, weave: true, color: '#f1ece3', roughness: 1, normalStrength: 1.6 }),
     duvet: scanned('waffle_pique_cotton', 0.4, { colorMap: false, weave: true, color: '#ece2d4', roughness: 1, normalStrength: 1.8 }),
-    oliveCloth: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: '#7e8160', roughness: 1, ...fabric, sheen: 0.6 }),
-    taupe: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: '#c6b59f', roughness: 1, ...fabric, sheen: 0.6 }),
-    sage: scanned('ribbed_corduroy', 0.45, { colorMap: false, weave: true, color: '#b3b7a2', roughness: 1, normalStrength: 1.8 }),
-    knit: scanned('knitted_fleece', 0.4, { colorMap: false, weave: true, color: '#8e8f6d', roughness: 1, normalStrength: 1.3 }),
-    rug: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: '#e2d6c2', roughness: 1, normalStrength: 1.6 }),
-    rugDark: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: '#bcab92', roughness: 1, normalStrength: 1.6 }),
+    // cushions (two accent colours), the throws on sofa and beds, headboards
+    oliveCloth: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: c.cushionA, roughness: 1, ...fabric, sheen: 0.6 }),
+    taupe: scanned('velour_velvet', 0.4, { colorMap: false, weave: true, rough: true, color: c.cushionB, roughness: 1, ...fabric, sheen: 0.6 }),
+    sage: scanned('ribbed_corduroy', 0.45, { colorMap: false, weave: true, color: c.headboard, roughness: 1, normalStrength: 1.8 }),
+    knit: scanned('knitted_fleece', 0.4, { colorMap: false, weave: true, color: c.throw, roughness: 1, normalStrength: 1.3 }),
+    rug: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: c.rug, roughness: 1, normalStrength: 1.6 }),
+    rugDark: scanned('poly_wool_herringbone', 1.2, { colorMap: false, weave: true, color: c.rugBorder, roughness: 1, normalStrength: 1.6 }),
     // stone, ceramic, metal
     marble: scanned('marble', 1.2, { rough: true, normal: false, roughness: 1, clearcoat: 0.6, clearcoatRoughness: 0.15 }),
     stonePot: scanned('clay_plaster', 0.6, { rough: true, color: '#ddd3c5', roughness: 1 }),
@@ -143,7 +158,7 @@ export function createMaterials({ lite, anisotropy, onLoad }: Opts) {
     // art and books: canvas weave on the prints, cloth-bound covers on the books
     art1: scanned('rough_linen', 0.5, { colorMap: false, color: '#d8cbb6', roughness: 1, normalStrength: 0.5 }),
     art2: scanned('rough_linen', 0.5, { colorMap: false, color: '#9aa38c', roughness: 1, normalStrength: 0.5 }),
-    art3: scanned('rough_linen', 0.5, { colorMap: false, color: '#bd7f63', roughness: 1, normalStrength: 0.5 }),
+    art3: scanned('rough_linen', 0.5, { colorMap: false, color: c.art, roughness: 1, normalStrength: 0.5 }),
     art4: scanned('rough_linen', 0.5, { colorMap: false, color: '#ece4d6', roughness: 1, normalStrength: 0.5 }),
     book1: scanned('rough_linen', 0.2, { colorMap: false, color: '#7a5944', roughness: 0.9, normalStrength: 0.6 }),
     book2: scanned('rough_linen', 0.2, { colorMap: false, color: '#cdbca3', roughness: 0.9, normalStrength: 0.6 }),

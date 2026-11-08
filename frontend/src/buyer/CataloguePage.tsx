@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmptyState, ErrorState } from '../components/ui'
 import { useApi } from '../lib/useApi'
-import { coverFor, floorLabel, lakhs, type Unit } from './catalogue'
+import { coverFor, floorLabel, lakhs, showFallback, type Unit } from './catalogue'
 
 // The catalogue: every flat for sale, with filters a buyer actually uses
 // (project, size, budget) and a sort. Each card opens the flat's 3D tour.
@@ -166,17 +166,27 @@ export default function CataloguePage() {
         ) : (
           <div className="cat-grid">
             {shown.map((u, i) => {
-              const cover = coverFor(u, i)
+              const cover = coverFor(u)
               return (
                 <Link key={u.code} to={`/homes/${u.code}`} className="cat-card">
                   <div className="cat-card-img">
-                    <img src={cover.src} alt={`${cover.name} in a furnished ${u.bhk} BHK`} loading={i < 3 ? 'eager' : 'lazy'} decoding="async" />
+                    <img
+                      src={cover.src}
+                      alt={`${cover.name} of ${u.code}, a furnished ${u.bhk} BHK`}
+                      loading={i < 3 ? 'eager' : 'lazy'}
+                      decoding="async"
+                      onError={(e) => showFallback(e, cover.fallback)}
+                    />
                     <span className="cat-code">
                       {u.code} · {u.projectName}
                     </span>
-                    <span className="cat-badge">
-                      <CubeIcon /> 3D tour
-                    </span>
+                    {u.layout ? (
+                      <span className="cat-badge">
+                        <CubeIcon /> 3D tour
+                      </span>
+                    ) : (
+                      <span className="cat-badge cat-badge-quiet">Photos only</span>
+                    )}
                   </div>
                   <div className="cat-card-title">
                     <h3>

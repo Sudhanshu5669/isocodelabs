@@ -103,6 +103,15 @@ const balconyFurniture: Item[] = [
   { t: 'plant', x: 0.35, z: -1.25, s: [1.1] },
 ]
 
+// 3 BHK balconies are deep sit-outs with a wooden swing (jhula) facing the
+// view, as in their photos; 2 BHK balconies keep two chairs and a table.
+const deepBalconyFurniture: Item[] = [
+  { t: 'swing', x: 2.0, z: -0.85, r: 180 },
+  { t: 'sideTable', x: 3.55, z: -0.8 },
+  { t: 'planter', x: 4.6, z: -1.3, s: [1.5] },
+  { t: 'plant', x: 0.35, z: -1.25, s: [1.1] },
+]
+
 const bathroomFurniture: Item[] = [
   { t: 'vanity', x: 5.3, z: 5.75, r: -90 },
   { t: 'shower', x: 5.13, z: 6.73 },
@@ -243,7 +252,7 @@ const threeBhk: Plan = {
   ],
   furniture: [
     ...livingFurniture,
-    ...balconyFurniture,
+    ...deepBalconyFurniture,
     ...bathroomFurniture,
     // kitchen
     { t: 'fridge', x: 6.05, z: 0.46 },
@@ -296,6 +305,64 @@ const threeBhk: Plan = {
 }
 
 export const plans: Record<Layout, Plan> = { '2bhk': twoBhk, '3bhk': threeBhk }
+
+// ---- per-flat variations (see themes.ts)
+
+/** Extra plants for a flat styled as a green home, clear of the other pieces. */
+const lushPlants: Record<Layout, Item[]> = {
+  '2bhk': [
+    { t: 'plant', x: 5.25, z: 0.45, s: [1.3] },
+    { t: 'plant', x: 0.85, z: -1.4, s: [0.9] },
+    { t: 'plant', x: 9.6, z: 8.6, s: [1.1] },
+    { t: 'plant', x: 3.25, z: 8.6, s: [0.8] },
+  ],
+  '3bhk': [
+    { t: 'plant', x: 5.25, z: 0.45, s: [1.3] },
+    { t: 'plant', x: 0.85, z: -1.4, s: [0.9] },
+    { t: 'plant', x: 13.0, z: 0.5, s: [0.9] },
+    { t: 'plant', x: 3.25, z: 8.95, s: [0.8] },
+  ],
+}
+
+/**
+ * The plan flipped east to west: a mirror-image flat, as in twin towers.
+ * Rooms, walls, doors, windows and furniture all swap sides; each piece turns
+ * the other way (rotation r becomes -r), and the sofa's chaise moves to its
+ * other end so the living room still works.
+ */
+export function mirrorPlan(plan: Plan): Plan {
+  const mx = (x: number) => Math.round((plan.width - x) * 1000) / 1000
+  return {
+    ...plan,
+    rooms: plan.rooms.map((r) => ({ ...r, x0: mx(r.x1), x1: mx(r.x0), eye: [mx(r.eye[0]), r.eye[1]], look: [mx(r.look[0]), r.look[1]] })),
+    walls: plan.walls.map((w) =>
+      w.along === 'x'
+        ? { ...w, from: mx(w.to), to: mx(w.from), openings: w.openings?.map((o) => ({ ...o, from: mx(o.to), to: mx(o.from) })) }
+        : { ...w, at: mx(w.at) },
+    ),
+    furniture: plan.furniture.map((f) => ({
+      ...f,
+      x: mx(f.x),
+      r: f.r ? -f.r : f.r,
+      s: f.t === 'sectional' ? [f.s?.[0] ?? 2.5, -1] : f.s,
+    })),
+  }
+}
+
+const planCache = new Map<string, Plan>()
+
+/** The plan for one flat: its layout, mirrored or not, with any extra plants. */
+export function planFor(layout: Layout, opts: { mirrored: boolean; lush: boolean }): Plan {
+  const key = `${layout}|${opts.mirrored}|${opts.lush}`
+  let plan = planCache.get(key)
+  if (!plan) {
+    const base = plans[layout]
+    const dressed = opts.lush ? { ...base, furniture: [...base.furniture, ...lushPlants[layout]] } : base
+    plan = opts.mirrored ? mirrorPlan(dressed) : dressed
+    planCache.set(key, plan)
+  }
+  return plan
+}
 
 /** Floor area of a room in square feet, for labels. */
 export function roomArea(r: Room): string {

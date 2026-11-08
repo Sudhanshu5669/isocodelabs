@@ -8,7 +8,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { buildFlat, type BuiltFlat, type FacingWall } from './buildFlat'
 import { createMaterials } from './materials'
-import { plans, type Layout } from './plans'
+import type { Plan } from './plans'
+import type { FlatTheme, LightMood, View } from './themes'
 
 // The 3D viewer. This file and the 3D library are loaded only when someone
 // opens a flat (React.lazy in the flat page), so the catalogue stays light.
@@ -27,15 +28,21 @@ import { plans, type Layout } from './plans'
 //     walk-in views
 //   - everything is freed when the viewer closes
 //
-// The light is a warm early evening: a low golden sun through the windows,
-// and every lamp in the flat switched on (a real light at each lamp, placed
-// by furniture.ts). Phones get the same warm palette without the lamp
-// lights, which cost the most to draw.
+// The light follows the way the flat faces (themes.ts), as in its photos:
+//   morning  east: a low, golden sun, lamps nearly off
+//   evening  west: a low amber sun and every lamp on
+//   midday   south: a high, bright, white sun and short shadows
+//   soft     north: no direct sun, an even sky light and soft shadows
+// Lamps are real lights at each lamp (placed by furniture.ts); phones get the
+// same palette without them, as they cost the most to draw. In the walk-in
+// view the windows show the flat's own view: garden, rooftops or skyline.
 
 export type TourView = { mode: 'flat' | 'room' | 'walk'; roomId: string | null }
 
 type Props = {
-  layout: Layout
+  /** The flat's plan (planFor: mirrored for Towers B and D) and its look. */
+  plan: Plan
+  theme: FlatTheme
   view: TourView
   /** The visitor clicked a room in the diorama. */
   onPick: (roomId: string) => void
@@ -49,19 +56,92 @@ const DIORAMA_FOV = 26
 /** Brightness of a lamp of strength 1 (candela). */
 const LAMP = 7
 
-/** A soft dusk gradient for the sky outside the windows. */
-function duskSky(): THREE.CanvasTexture {
+/** How each time of day is lit. pos is where the sun stands, relative to the flat. */
+const moods: Record<LightMood, {
+  sun: string; power: number; pos: [number, number, number]; shadowRadius: number
+  sky: string; ground: string; hemi: number; env: number; lamps: number; exposure: number
+  skyStops: [number, string][]; haze: string
+}> = {
+  morning: {
+    sun: '#ffd8aa', power: 2.6, pos: [-6, 5, 10], shadowRadius: 4, sky: '#eef3ff', ground: '#a89880', hemi: 0.45, env: 0.5, lamps: 0.2, exposure: 0.97,
+    skyStops: [[0, '#a9c3e0'], [0.55, '#f3dcc2'], [1, '#f8cb9c']], haze: '#f1d6bd',
+  },
+  evening: {
+    sun: '#ffbe85', power: 2.6, pos: [-10, 5, 6.5], shadowRadius: 4, sky: '#fff1e0', ground: '#a08870', hemi: 0.35, env: 0.5, lamps: 1, exposure: 0.95,
+    skyStops: [[0, '#9fa7c4'], [0.45, '#e9b9a0'], [0.7, '#f7c98f'], [1, '#f2a974']], haze: '#eab48f',
+  },
+  midday: {
+    sun: '#fff6ea', power: 3.1, pos: [-3, 14, 5], shadowRadius: 3, sky: '#f4f8ff', ground: '#b0a28c', hemi: 0.45, env: 0.55, lamps: 0, exposure: 0.98,
+    skyStops: [[0, '#6fa3d8'], [0.6, '#bfd9ef'], [1, '#e6f0f6']], haze: '#d8e6ee',
+  },
+  soft: {
+    sun: '#eef2ff', power: 1.1, pos: [-5, 12, 6], shadowRadius: 10, sky: '#f2f4f7', ground: '#a39a8c', hemi: 0.9, env: 0.65, lamps: 0.35, exposure: 1.04,
+    skyStops: [[0, '#b9c3cc'], [0.6, '#dfe3e6'], [1, '#eceeee']], haze: '#dadfe2',
+  },
+}
+
+/**
+ * The sky outside the windows in the walk-in view, with the flat's own view
+ * along the bottom: tree canopy (low floors), rooftops among trees (middle
+ * floors) or a far, hazy city skyline (high floors).
+ */
+function windowView(mood: LightMood, view: View): THREE.CanvasTexture {
+  const W = 512
+  const H = 256
   const c = document.createElement('canvas')
-  c.width = 2
-  c.height = 256
+  c.width = W
+  c.height = H
   const g = c.getContext('2d')!
-  const grad = g.createLinearGradient(0, 0, 0, 256)
-  grad.addColorStop(0, '#9fa7c4')
-  grad.addColorStop(0.45, '#e9b9a0')
-  grad.addColorStop(0.7, '#f7c98f')
-  grad.addColorStop(1, '#f2a974')
+  const m = moods[mood]
+  const grad = g.createLinearGradient(0, 0, 0, H)
+  for (const [at, col] of m.skyStops) grad.addColorStop(at, col)
   g.fillStyle = grad
-  g.fillRect(0, 0, 2, 256)
+  g.fillRect(0, 0, W, H)
+
+  let seed = 7
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  const leaf = mood === 'evening' ? '#6f6a40' : mood === 'soft' ? '#5f7258' : '#5c7a45'
+  const trees = (top: number, size: number, col: string) => {
+    g.fillStyle = col
+    for (let x = -20; x < W + 20; x += size * 0.7) {
+      const r = size * (0.6 + rand() * 0.5)
+      g.beginPath()
+      g.arc(x, top + rand() * size * 0.5, r, 0, Math.PI * 2)
+      g.fill()
+    }
+    g.fillRect(0, top + size * 0.4, W, H)
+  }
+  if (view === 'garden') {
+    trees(H * 0.42, 34, leaf)
+    trees(H * 0.58, 26, mood === 'evening' ? '#5d5a36' : '#4d6a3a')
+  } else if (view === 'rooftops') {
+    g.fillStyle = m.haze
+    g.fillRect(0, H * 0.6, W, H)
+    for (let x = 0; x < W; ) {
+      const w = 26 + rand() * 40
+      const h = 14 + rand() * 30
+      g.fillStyle = rand() > 0.5 ? '#cbbba5' : '#b9a891'
+      g.fillRect(x, H * 0.66 - h, w - 3, h + H)
+      x += w
+    }
+    trees(H * 0.72, 18, leaf)
+  } else {
+    // far towers in the haze, then the city fading towards the horizon
+    for (let x = 0; x < W; ) {
+      const w = 6 + rand() * 16
+      const h = 4 + rand() * (rand() > 0.85 ? 40 : 16)
+      g.fillStyle = mood === 'evening' ? '#b98f86' : mood === 'midday' ? '#9fb2c0' : '#aab3bb'
+      g.globalAlpha = 0.75
+      g.fillRect(x, H * 0.62 - h, w - 1, h)
+      x += w + rand() * 4
+    }
+    g.globalAlpha = 1
+    const ground = g.createLinearGradient(0, H * 0.62, 0, H)
+    ground.addColorStop(0, m.haze)
+    ground.addColorStop(1, mood === 'evening' ? '#b98f78' : '#a9ae9c')
+    g.fillStyle = ground
+    g.fillRect(0, H * 0.62, W, H)
+  }
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.SRGBColorSpace
   return t
@@ -69,7 +149,7 @@ function duskSky(): THREE.CanvasTexture {
 const WALK_FOV = 68
 const EYE = 1.55
 
-export default function TourViewer({ layout, view, onPick, onHover, onFail }: Props) {
+export default function TourViewer({ plan, theme, view, onPick, onHover, onFail }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<{ setView: (v: TourView, animate: boolean) => void } | null>(null)
   const viewRef = useRef(view)
@@ -95,8 +175,12 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     // Neutral tone mapping (the Khronos PBR standard) keeps colours true: warm
     // lamp light stays warm and the cream stage stays cream. (AgX, used
     // before, drained both towards grey.)
+    const mood = moods[theme.light]
+    // Mirror-image flats (Towers B and D) are viewed from the south-west, so
+    // their back walls (where the TV and art hang) still face the camera.
+    const side = theme.mirrored ? -1 : 1
     renderer.toneMapping = THREE.NeutralToneMapping
-    renderer.toneMappingExposure = 0.95
+    renderer.toneMappingExposure = mood.exposure
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -118,26 +202,26 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     const stage = new THREE.Color('#ece2d4')
     const stageThroughEffects = new THREE.Color().setRGB(1.08, 0.97, 0.84, THREE.LinearSRGBColorSpace)
     scene.background = stage
-    // Seen through the windows in the walk-in view: a warm dusk sky.
-    const dusk = duskSky()
+    // Seen through the windows in the walk-in view: the flat's sky and view.
+    const outside = windowView(theme.light, theme.view)
     let redraw = () => {} // set once the render loop exists; textures call it when they arrive
     const pmrem = new THREE.PMREMGenerator(renderer)
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
     scene.environment = envTex
-    scene.environmentIntensity = 0.5 // a neutral fill, so whites stay cream under the warm lights
+    scene.environmentIntensity = mood.env // a neutral fill, so whites stay cream under the warm lights
 
     const { mats, dispose: disposeMats } = createMaterials({
       lite,
       anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
       onLoad: () => redraw(),
+      theme,
     })
-    const plan = plans[layout]
     const flat: BuiltFlat = buildFlat(plan, mats, { shadows: true })
     scene.add(flat.root)
 
-    // Golden hour: a low, deep-amber sun that lays long warm patches through the glass.
-    const sun = new THREE.DirectionalLight('#ffd0a0', 2.7)
-    sun.position.set(flat.center.x - 9, 8.5, flat.center.z + 7)
+    // The sun for this flat's time of day (mirrored with the flat).
+    const sun = new THREE.DirectionalLight(mood.sun, mood.power)
+    sun.position.set(flat.center.x + side * mood.pos[0], mood.pos[1], flat.center.z + mood.pos[2])
     sun.target.position.copy(flat.center)
     sun.castShadow = true
     sun.shadow.mapSize.set(lite ? 1024 : 2048, lite ? 1024 : 2048)
@@ -145,9 +229,9 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 40 })
     sun.shadow.bias = -0.0004
     sun.shadow.normalBias = 0.02
-    sun.shadow.radius = 4
+    sun.shadow.radius = mood.shadowRadius
     scene.add(sun, sun.target)
-    scene.add(new THREE.HemisphereLight('#fff1e0', '#a08870', lite ? 0.6 : 0.35))
+    scene.add(new THREE.HemisphereLight(mood.sky, mood.ground, lite ? mood.hemi + 0.25 : mood.hemi))
     // A warm ceiling light for the walk-in view, like a lit room in the
     // evening. It stays in the scene at zero brightness in the other views,
     // so switching views never rebuilds the shaders.
@@ -165,7 +249,7 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
         const light = new THREE.PointLight('#ffcf9e', 0, l.reach, 2)
         light.position.copy(l.pos)
         scene.add(light)
-        lamps.push({ light, roomId: l.roomId, base: l.strength * LAMP })
+        lamps.push({ light, roomId: l.roomId, base: l.strength * LAMP * mood.lamps })
       }
     }
 
@@ -271,7 +355,7 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
     const dioramaPose = (target: THREE.Vector3, span: number, aspect: number, room = false) => {
       const fit = span / (2 * Math.tan(THREE.MathUtils.degToRad(DIORAMA_FOV / 2)))
       const dist = fit * (aspect < 1 ? 1.3 / Math.max(aspect, 0.55) : 1.14) * (room ? 1.22 : 1)
-      const dir = new THREE.Vector3(0.82, 0.95, 1).normalize()
+      const dir = new THREE.Vector3(0.82 * side, 0.95, 1).normalize()
       return { pos: target.clone().addScaledVector(dir, dist), target, dist }
     }
 
@@ -301,7 +385,7 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
         const own = l.roomId === v.roomId
         l.light.intensity = nextMode === 'flat' ? l.base * 0.7 : own ? l.base : nextMode === 'walk' ? l.base * 0.35 : 0
       }
-      scene.background = nextMode === 'walk' ? dusk : composer && nextMode !== 'flat' ? stageThroughEffects : stage
+      scene.background = nextMode === 'walk' ? outside : composer && nextMode !== 'flat' ? stageThroughEffects : stage
       if (room) roomLight.position.set(room.center.x, 2.35, room.center.z)
       flat.cut.constant = nextMode === 'walk' ? 100 : 1.15
       renderer.shadowMap.needsUpdate = true
@@ -346,10 +430,11 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
           controls.minPolarAngle = 0.35
           controls.maxPolarAngle = 1.2
         }
-        // Dioramas turn within the south-east quarter, so the north and west
-        // walls are always the back walls (art hangs there) and never cut away.
-        controls.minAzimuthAngle = walk ? -Infinity : 0.12
-        controls.maxAzimuthAngle = walk ? Infinity : 1.45
+        // Dioramas turn within the south-east quarter (south-west for a
+        // mirror-image flat), so the back walls, where the TV and art hang,
+        // are never cut away.
+        controls.minAzimuthAngle = walk ? -Infinity : side > 0 ? 0.12 : -1.45
+        controls.maxAzimuthAngle = walk ? Infinity : side > 0 ? 1.45 : -0.12
         updateFacing()
         renderer.shadowMap.needsUpdate = true
         invalidate()
@@ -460,12 +545,12 @@ export default function TourViewer({ layout, view, onPick, onHover, onFail }: Pr
       ground.geometry.dispose()
       ;(ground.material as THREE.Material).dispose()
       envTex.dispose()
-      dusk.dispose()
+      outside.dispose()
       pmrem.dispose()
       renderer.dispose()
       el.remove()
     }
-  }, [layout])
+  }, [plan, theme])
 
   // Changing rooms or views flies the camera there.
   useEffect(() => {

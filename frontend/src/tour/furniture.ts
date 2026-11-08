@@ -124,40 +124,67 @@ const builders: Record<string, Builder> = {
     return g
   },
 
-  // A deep cream sectional with a chaise on its right (+x) end.
-  sectional(m, [len = 2.5]) {
+  // A deep sectional with a chaise on one end: s = [length, side]. side 1 puts
+  // the chaise on the right (+x) end, -1 on the left (used by mirror-image flats).
+  sectional(m, [len = 2.5, side = 1]) {
     const g = new THREE.Group()
     const D = 0.95
+    const x = (v: number) => v * side
+    const ry = (v: number) => v * side
     soft(g, len, 0.36, D, 0.05, m.boucle, 0, 0.04, 0)
     soft(g, len, 0.42, 0.22, 0.09, m.boucle, 0, 0.36, -D / 2 + 0.11)
-    soft(g, 0.24, 0.26, D, 0.09, m.boucle, -len / 2 + 0.12, 0.36, 0)
+    soft(g, 0.24, 0.26, D, 0.09, m.boucle, x(-len / 2 + 0.12), 0.36, 0)
     const n = 3
     const cw = (len - 0.24) / n
     for (let i = 0; i < n; i++) {
-      const x = -len / 2 + 0.24 + cw * i + cw / 2
-      soft(g, cw - 0.02, 0.13, D - 0.26, 0.06, m.boucle, x, 0.38, 0.12)
-      soft(g, cw - 0.06, 0.38, 0.17, 0.08, m.boucleShade, x, 0.48, -D / 2 + 0.28, 0, -0.14)
+      const cx = x(-len / 2 + 0.24 + cw * i + cw / 2)
+      soft(g, cw - 0.02, 0.13, D - 0.26, 0.06, m.boucle, cx, 0.38, 0.12)
+      soft(g, cw - 0.06, 0.38, 0.17, 0.08, m.boucleShade, cx, 0.48, -D / 2 + 0.28, 0, -0.14)
     }
     // the chaise
-    soft(g, 0.95, 0.36, 0.95, 0.05, m.boucle, len / 2 - 0.475, 0.04, D / 2 + 0.47)
-    soft(g, 0.91, 0.13, 0.9, 0.06, m.boucle, len / 2 - 0.475, 0.38, D / 2 + 0.47)
+    soft(g, 0.95, 0.36, 0.95, 0.05, m.boucle, x(len / 2 - 0.475), 0.04, D / 2 + 0.47)
+    soft(g, 0.91, 0.13, 0.9, 0.06, m.boucle, x(len / 2 - 0.475), 0.38, D / 2 + 0.47)
     // cushions and a throw
-    soft(g, 0.42, 0.4, 0.13, 0.07, m.oliveCloth, -len / 2 + 0.5, 0.5, -D / 2 + 0.42, 0.25, -0.2)
-    soft(g, 0.4, 0.38, 0.13, 0.07, m.taupe, -len / 2 + 0.92, 0.5, -D / 2 + 0.4, -0.1, -0.2)
-    soft(g, 0.4, 0.38, 0.13, 0.07, m.oliveCloth, len / 2 - 0.5, 0.5, -D / 2 + 0.4, -0.2, -0.2)
-    box(g, 0.55, 0.025, 0.95, m.knit, len / 2 - 0.3, 0.505, D / 2 + 0.45)
-    box(g, 0.55, 0.32, 0.02, m.knit, len / 2 - 0.3, 0.2, D / 2 + 0.93)
+    soft(g, 0.42, 0.4, 0.13, 0.07, m.oliveCloth, x(-len / 2 + 0.5), 0.5, -D / 2 + 0.42, ry(0.25), -0.2)
+    soft(g, 0.4, 0.38, 0.13, 0.07, m.taupe, x(-len / 2 + 0.92), 0.5, -D / 2 + 0.4, ry(-0.1), -0.2)
+    soft(g, 0.4, 0.38, 0.13, 0.07, m.oliveCloth, x(len / 2 - 0.5), 0.5, -D / 2 + 0.4, ry(-0.2), -0.2)
+    box(g, 0.55, 0.025, 0.95, m.knit, x(len / 2 - 0.3), 0.505, D / 2 + 0.45)
+    box(g, 0.55, 0.32, 0.02, m.knit, x(len / 2 - 0.3), 0.2, D / 2 + 0.93)
     return g
   },
 
+  // The flat's signature armchair, in its own colour (themes.ts: palette.chair).
   armchair(m) {
     const g = new THREE.Group()
-    soft(g, 0.85, 0.36, 0.82, 0.06, m.boucle, 0, 0.06, 0)
-    soft(g, 0.85, 0.4, 0.18, 0.08, m.boucle, 0, 0.36, -0.32)
-    soft(g, 0.16, 0.24, 0.82, 0.07, m.boucle, -0.345, 0.36, 0)
-    soft(g, 0.16, 0.24, 0.82, 0.07, m.boucle, 0.345, 0.36, 0)
-    soft(g, 0.52, 0.11, 0.58, 0.05, m.boucleShade, 0, 0.42, 0.06)
+    soft(g, 0.85, 0.36, 0.82, 0.06, m.chairCloth, 0, 0.06, 0)
+    soft(g, 0.85, 0.4, 0.18, 0.08, m.chairCloth, 0, 0.36, -0.32)
+    soft(g, 0.16, 0.24, 0.82, 0.07, m.chairCloth, -0.345, 0.36, 0)
+    soft(g, 0.16, 0.24, 0.82, 0.07, m.chairCloth, 0.345, 0.36, 0)
+    soft(g, 0.52, 0.11, 0.58, 0.05, m.chairCloth, 0, 0.42, 0.06)
     soft(g, 0.36, 0.32, 0.12, 0.06, m.taupe, 0, 0.5, -0.18, 0, -0.2)
+    return g
+  },
+
+  // A wooden swing (jhula) on its own stand, as on the 3 BHK balconies:
+  // a cushioned plank seat hung by brass rods from a beam between two A-frames.
+  swing(m) {
+    const g = new THREE.Group()
+    const W = 1.5
+    const top = 2.05
+    for (const sx of [-1, 1]) {
+      const x = sx * (W / 2 + 0.22)
+      // an A-frame: two legs leaning in to meet the beam
+      put(g, new THREE.BoxGeometry(0.06, top, 0.06), m.oak, x, top / 2, -0.32, 0, 0.3)
+      put(g, new THREE.BoxGeometry(0.06, top, 0.06), m.oak, x, top / 2, 0.32, 0, -0.3)
+      box(g, 0.06, 0.05, 0.7, m.oak, x, 0.3, 0)
+    }
+    box(g, W + 0.5, 0.08, 0.08, m.oak, 0, top, 0)
+    for (const x of [-W / 2 + 0.06, W / 2 - 0.06]) for (const z of [-0.22, 0.22]) cyl(g, 0.009, 0.009, top - 0.48, m.brass, x, 0.48, z, 6)
+    soft(g, W, 0.06, 0.58, 0.01, m.walnut, 0, 0.42, 0)
+    soft(g, W - 0.06, 0.1, 0.54, 0.04, m.chairCloth, 0, 0.48, 0.01)
+    soft(g, W - 0.1, 0.42, 0.1, 0.05, m.chairCloth, 0, 0.58, -0.24, 0, -0.15)
+    soft(g, 0.4, 0.34, 0.12, 0.06, m.oliveCloth, -W / 2 + 0.32, 0.62, -0.13, 0.2, -0.2)
+    soft(g, 0.38, 0.32, 0.12, 0.06, m.taupe, W / 2 - 0.32, 0.62, -0.13, -0.2, -0.2)
     return g
   },
 
@@ -308,8 +335,8 @@ const builders: Record<string, Builder> = {
   loungeChair(m) {
     const g = new THREE.Group()
     box(g, 0.72, 0.22, 0.72, m.oak, 0, 0.03, 0)
-    soft(g, 0.68, 0.11, 0.68, 0.04, m.taupe, 0, 0.25, 0.01)
-    soft(g, 0.68, 0.5, 0.12, 0.05, m.boucle, 0, 0.3, -0.3, 0, -0.25)
+    soft(g, 0.68, 0.11, 0.68, 0.04, m.chairCloth, 0, 0.25, 0.01)
+    soft(g, 0.68, 0.5, 0.12, 0.05, m.chairCloth, 0, 0.3, -0.3, 0, -0.25)
     return g
   },
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { FreeSlot } from '../api/types'
 import SlotPicker from '../components/SlotPicker'
@@ -6,10 +6,11 @@ import { ErrorState, Loading } from '../components/ui'
 import { isoDay, addDays } from '../lib/format'
 import { useApi } from '../lib/useApi'
 import FloorPlan from '../tour/FloorPlan'
-import { plans, roomArea } from '../tour/plans'
+import { planFor, roomArea } from '../tour/plans'
+import { describeTheme, flatTheme } from '../tour/themes'
 import type { TourView } from '../tour/TourViewer'
 import { CubeIcon } from './CataloguePage'
-import { bathrooms, floorLabel, lakhs, photos, type UnitDetail } from './catalogue'
+import { bathrooms, floorLabel, lakhs, photosFor, showFallback, type UnitDetail } from './catalogue'
 import './unit.css'
 
 // The 3D code (and the 3D library) is downloaded only when this page opens,
@@ -28,6 +29,9 @@ export default function UnitPage() {
   const [view, setView] = useState<TourView>({ mode: 'flat', roomId: null })
   const [hover, setHover] = useState<string | null>(null)
   const [tourFailed, setTourFailed] = useState(false)
+  // The flat's own look for its 3D model (palette, light, view, mirroring).
+  // Memoised so the 3D scene is built once, not on every render.
+  const theme = useMemo(() => (unit.data ? flatTheme(unit.data) : null), [unit.data])
 
   if (unit.error) {
     return (
@@ -48,14 +52,17 @@ export default function UnitPage() {
   }
 
   const u = unit.data
-  const plan = plans[u.layout]
-  const room = view.roomId ? plan.rooms.find((r) => r.id === view.roomId) : undefined
-  const hovered = hover ? plan.rooms.find((r) => r.id === hover) : undefined
+  // No layout means the flat has no 3D model yet: the page shows its photos instead.
+  const plan = u.layout && theme ? planFor(u.layout, theme) : null
+  const room = plan && view.roomId ? plan.rooms.find((r) => r.id === view.roomId) : undefined
+  const hovered = plan && hover ? plan.rooms.find((r) => r.id === hover) : undefined
   const openRoom = (id: string) => setView((v) => ({ mode: v.mode === 'walk' ? 'walk' : 'room', roomId: id }))
   const facts = u.facts.filter((f) => f.topic !== 'price_range')
+  const gallery = photosFor(u)
 
   return (
     <main className="pub-main unit">
+      {plan && theme ? (
       <section className="unit-stage" aria-label="3D tour">
         <Link to="/" className="unit-back">
           ← All homes
@@ -63,12 +70,12 @@ export default function UnitPage() {
         <div className="tour">
           {tourFailed ? (
             <div className="tour-fallback">
-              <img src={photos.living.src} alt="Furnished living room" />
+              <img src={gallery[0].src} alt="Furnished living room" onError={(e) => showFallback(e, gallery[0].fallback)} />
               <p>This device cannot show the 3D model, so here is a photo of a furnished home instead.</p>
             </div>
           ) : (
             <Suspense fallback={<div className="tour-loading">Preparing the 3D model</div>}>
-              <TourViewer layout={u.layout} view={view} onPick={openRoom} onHover={setHover} onFail={() => setTourFailed(true)} />
+              <TourViewer plan={plan} theme={theme} view={view} onPick={openRoom} onHover={setHover} onFail={() => setTourFailed(true)} />
             </Suspense>
           )}
 
@@ -120,10 +127,28 @@ export default function UnitPage() {
           )}
         </div>
         <p className="muted small unit-note">
+          <span className="unit-mood">{describeTheme(theme)}</span>
           {view.mode === 'walk' ? 'Drag to look around. ' : ''}The 3D model and layout are indicative; furniture and finishes may
           differ from the delivered home.
         </p>
       </section>
+      ) : (
+        <section className="unit-stage" aria-label="Photos of this home">
+          <Link to="/" className="unit-back">
+            ← All homes
+          </Link>
+          <div className="tour">
+            <div className="tour-fallback">
+              <img src={gallery[0].src} alt={`Living room of ${u.code}, furnished`} onError={(e) => showFallback(e, gallery[0].fallback)} />
+            </div>
+            <span className="tour-badge">Photos · 3D model coming soon</span>
+          </div>
+          <p className="muted small unit-note">
+            The 3D model of this home is not ready yet. The photos below show it furnished, and on a site visit our team walks
+            you through the real flat.
+          </p>
+        </section>
+      )}
 
       <section className="unit-info">
         <div>
@@ -163,9 +188,15 @@ export default function UnitPage() {
             <p className="muted small">Scroll sideways</p>
           </div>
           <div className="unit-rail" tabIndex={0} role="region" aria-label="Photos">
-            {Object.values(photos).map((p) => (
+            {gallery.map((p) => (
               <figure key={p.src}>
-                <img src={p.src} alt={`${p.name}, furnished`} loading="lazy" decoding="async" />
+                <img
+                  src={p.src}
+                  alt={`${p.name} of ${u.code}, furnished`}
+                  loading="lazy"
+                  decoding="async"
+                  onError={(e) => showFallback(e, p.fallback)}
+                />
                 <figcaption>{p.name}</figcaption>
               </figure>
             ))}

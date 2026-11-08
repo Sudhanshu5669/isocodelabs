@@ -21,6 +21,15 @@
 .unit-note {
   margin-top: 12px;
 }
+.unit-mood {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
 
 /* ---- The 3D stage: a pale, warm table the diorama stands on ---- */
 .tour {
@@ -65,7 +74,8 @@
   top: 64px;
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(20, 18, 16, 0.78);
+  color: var(--ink);
   font-size: 14px;
 }
 .tour-badge {
@@ -322,4 +332,29 @@
   .plan-room {
     transition: none;
   }
+}
+
+/* The 3D stage is a pale, warm table in both themes, so the controls on it use
+   dark text, whatever the page around it uses. */
+.tour {
+  color: #141210;
+}
+.tour-size {
+  color: #5c564e;
+}
+.tour-bar .segmented button {
+  color: #5c564e;
+}
+.tour-bar .segmented button[aria-pressed='true'] {
+  background: #141210;
+  color: #f5f1ea;
+}
+.fchip-glass {
+  color: #141210;
+  border-color: rgba(20, 18, 16, 0.18);
+}
+.fchip-glass[aria-pressed='true'] {
+  background: #141210;
+  border-color: #141210;
+  color: #f5f1ea;
 }
