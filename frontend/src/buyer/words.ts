@@ -21,6 +21,8 @@ export type Words = {
   send: string
   talkToPerson: string
   thinking: string
+  online: string
+  typing: string
   handedOff: (name: string) => string
   handedOffTeam: string
   freeTimes: string
@@ -69,6 +71,8 @@ export const words: Record<Lang, Words> = {
     send: 'Send',
     talkToPerson: 'Talk to a person',
     thinking: 'Writing a reply',
+    online: 'online',
+    typing: 'typing…',
     handedOff: (n) => `${n} from our sales team has your details and will call you.`,
     handedOffTeam: 'Our sales team has your details and will call you.',
     freeTimes: 'Free visit times',
@@ -118,6 +122,8 @@ export const words: Record<Lang, Words> = {
     send: 'भेजें',
     talkToPerson: 'किसी व्यक्ति से बात करें',
     thinking: 'जवाब लिखा जा रहा है',
+    online: 'ऑनलाइन',
+    typing: 'टाइप कर रहे हैं…',
     handedOff: (n) => `हमारी सेल्स टीम के ${n} के पास आपकी जानकारी है और वे आपको कॉल करेंगे।`,
     handedOffTeam: 'हमारी सेल्स टीम के पास आपकी जानकारी है और वे आपको कॉल करेंगे।',
     freeTimes: 'विज़िट के खाली समय',
@@ -167,6 +173,8 @@ export const words: Record<Lang, Words> = {
     send: 'મોકલો',
     talkToPerson: 'કોઈ વ્યક્તિ સાથે વાત કરો',
     thinking: 'જવાબ લખાઈ રહ્યો છે',
+    online: 'ઑનલાઇન',
+    typing: 'ટાઇપ કરી રહ્યા છે…',
     handedOff: (n) => `અમારી સેલ્સ ટીમના ${n} પાસે તમારી વિગતો છે અને તેઓ તમને કૉલ કરશે.`,
     handedOffTeam: 'અમારી સેલ્સ ટીમ પાસે તમારી વિગતો છે અને તેઓ તમને કૉલ કરશે.',
     freeTimes: 'વિઝિટના ખાલી સમય',
