@@ -23,13 +23,14 @@ func TestOpenAIRequestShape(t *testing.T) {
 			{Name: "budget", Type: "number"},
 		}}},
 	}
-	raw, err := providers.EncodeOpenAIRequest("gpt-5-nano", req)
+	raw, err := providers.EncodeOpenAIRequest("gpt-6-luna", "none", req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(raw)
 	for _, want := range []string{
-		`"model":"gpt-5-nano"`,
+		`"model":"gpt-6-luna"`,
+		`"reasoning_effort":"none"`,
 		`{"role":"system","content":"rules"}`,
 		`{"role":"user","content":"hi"}`,
 		`{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"get_free_slots","arguments":"{}"}}]}`,

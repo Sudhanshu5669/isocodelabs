@@ -104,7 +104,7 @@ in `ai/completion.go`. Each provider is a struct that has all of its methods:
 |---|---|---|---|
 | `Complete(ctx, Request) (Turn, error)` | POST to Gemini's REST API | POST to `/chat/completions` | always fails, so fixed replies are used |
 | `Provider() string` | `"gemini"` | `"openai"` | `"offline"` |
-| `Model() string` | e.g. `gemini-3.5-flash-lite` | e.g. `gpt-5-nano` | `"none"` |
+| `Model() string` | e.g. `gemini-3.5-flash-lite` | e.g. `gpt-6-luna` | `"none"` |
 
 `providers.New(cfg)` reads `AI_PROVIDER` and `AI_MODEL` and returns the right
 struct. Nothing else in the app names a provider, so switching is a config

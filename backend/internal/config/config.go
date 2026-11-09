@@ -32,6 +32,9 @@ type Config struct {
 	GeminiAPIKey  string
 	OpenAIAPIKey  string
 	OpenAIBaseURL string // empty means OpenAI itself; set it for an OpenAI-compatible API
+	// OpenAIReasoningEffort is sent as reasoning_effort: empty means "none",
+	// "off" leaves it out (for models that do not accept it).
+	OpenAIReasoningEffort string
 
 	// TrustedProxyHeader names the ONE header the hosting platform's proxy sets
 	// to the real client IP (e.g. "Fly-Client-IP"). Empty means no proxy: the
@@ -83,11 +86,12 @@ func Load() (Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		PooledURL:   os.Getenv("DATABASE_URL_POOLED"),
 
-		AIProvider:    strings.ToLower(getenv("AI_PROVIDER", "gemini")),
-		AIModel:       strings.TrimSpace(os.Getenv("AI_MODEL")),
-		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
-		OpenAIAPIKey:  os.Getenv("OPENAI_API_KEY"),
-		OpenAIBaseURL: os.Getenv("OPENAI_BASE_URL"),
+		AIProvider:            strings.ToLower(getenv("AI_PROVIDER", "gemini")),
+		AIModel:               strings.TrimSpace(os.Getenv("AI_MODEL")),
+		GeminiAPIKey:          os.Getenv("GEMINI_API_KEY"),
+		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
+		OpenAIBaseURL:         os.Getenv("OPENAI_BASE_URL"),
+		OpenAIReasoningEffort: strings.ToLower(strings.TrimSpace(os.Getenv("OPENAI_REASONING_EFFORT"))),
 
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"),
 		StaticDir:            strings.TrimSpace(os.Getenv("STATIC_DIR")),

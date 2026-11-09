@@ -10,7 +10,7 @@
 // Switching provider is a config change only, for example:
 //
 //	AI_PROVIDER=openai
-//	AI_MODEL=gpt-5-nano
+//	AI_MODEL=gpt-6-luna
 //	OPENAI_API_KEY=...
 //
 // Adding a provider means one new file with a struct that has Complete,
@@ -47,7 +47,7 @@ func New(cfg config.Config) (ai.ChatCompletion, error) {
 	case "gemini":
 		return NewGemini(cfg.GeminiAPIKey, cfg.AIModel)
 	case "openai":
-		return NewOpenAI(cfg.OpenAIAPIKey, cfg.AIModel, cfg.OpenAIBaseURL)
+		return NewOpenAI(cfg.OpenAIAPIKey, cfg.AIModel, cfg.OpenAIBaseURL, cfg.OpenAIReasoningEffort)
 	case "offline":
 		return Offline{}, nil
 	default:

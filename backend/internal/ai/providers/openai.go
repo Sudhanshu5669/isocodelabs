@@ -18,21 +18,31 @@ import (
 )
 
 // DefaultOpenAIModel is used when AI_MODEL is empty and AI_PROVIDER=openai.
-const DefaultOpenAIModel = "gpt-5-nano"
+const DefaultOpenAIModel = "gpt-6-luna"
 
 // DefaultOpenAIBaseURL is OpenAI's own API.
 const DefaultOpenAIBaseURL = "https://api.openai.com/v1"
+
+// DefaultOpenAIReasoningEffort is used when OPENAI_REASONING_EFFORT is empty.
+// "none" means the model answers straight away without thinking first: fast
+// and cheap, and the fact-sheet chat does not need more. It is also required:
+// newer models (gpt-6-luna, for example) refuse function tools on this API
+// unless the effort is "none".
+const DefaultOpenAIReasoningEffort = "none"
 
 // OpenAI implements ai.ChatCompletion for OpenAI (and compatible) models.
 type OpenAI struct {
 	apiKey  string
 	model   string
+	effort  string // reasoning_effort to send; "" means leave it out
 	baseURL string
 	http    *http.Client
 }
 
-// NewOpenAI creates an OpenAI client. model and baseURL may be "" for the defaults.
-func NewOpenAI(apiKey, model, baseURL string) (*OpenAI, error) {
+// NewOpenAI creates an OpenAI client. model, baseURL and effort may be "" for
+// the defaults. effort "off" leaves reasoning_effort out of the request, for
+// models that do not accept it at all (gpt-4.1-mini, for example).
+func NewOpenAI(apiKey, model, baseURL, effort string) (*OpenAI, error) {
 	if apiKey == "" {
 		return nil, errors.New("openai: OPENAI_API_KEY is not set")
 	}
@@ -42,9 +52,16 @@ func NewOpenAI(apiKey, model, baseURL string) (*OpenAI, error) {
 	if baseURL == "" {
 		baseURL = DefaultOpenAIBaseURL
 	}
+	switch effort {
+	case "":
+		effort = DefaultOpenAIReasoningEffort
+	case "off":
+		effort = ""
+	}
 	return &OpenAI{
 		apiKey:  apiKey,
 		model:   model,
+		effort:  effort,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http:    &http.Client{Timeout: callTimeout},
 	}, nil
@@ -58,7 +75,7 @@ func (o *OpenAI) Model() string { return o.model }
 
 // Complete sends one request and returns the model's turn.
 func (o *OpenAI) Complete(ctx context.Context, req ai.Request) (ai.Turn, error) {
-	body, err := EncodeOpenAIRequest(o.model, req)
+	body, err := EncodeOpenAIRequest(o.model, o.effort, req)
 	if err != nil {
 		return ai.Turn{}, err
 	}
@@ -94,6 +111,9 @@ type openaiRequest struct {
 	// Covers the reply AND any hidden reasoning the model does first, so it
 	// is more generous than Gemini's limit.
 	MaxCompletionTokens int `json:"max_completion_tokens"`
+	// How much the model thinks before answering ("none", "minimal", "low"...).
+	// Left out when empty.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// Temperature is not sent: newer OpenAI models only accept the default.
 }
 
@@ -145,8 +165,8 @@ type openaiResponse struct {
 // Translating between our types and OpenAI's
 // -----------------------------------------------------------------------------
 
-func toOpenAI(model string, req ai.Request) openaiRequest {
-	w := openaiRequest{Model: model, MaxCompletionTokens: 4096}
+func toOpenAI(model, effort string, req ai.Request) openaiRequest {
+	w := openaiRequest{Model: model, MaxCompletionTokens: 4096, ReasoningEffort: effort}
 	if req.System != "" {
 		w.Messages = append(w.Messages, openaiMessage{Role: "system", Content: &req.System})
 	}
@@ -223,9 +243,9 @@ func fromOpenAI(m openaiMessage) (ai.Turn, error) {
 }
 
 // EncodeOpenAIRequest turns a request into the JSON body the Chat Completions
-// API expects.
-func EncodeOpenAIRequest(model string, req ai.Request) ([]byte, error) {
-	return json.Marshal(toOpenAI(model, req))
+// API expects. effort "" leaves reasoning_effort out.
+func EncodeOpenAIRequest(model, effort string, req ai.Request) ([]byte, error) {
+	return json.Marshal(toOpenAI(model, effort, req))
 }
 
 // DecodeOpenAITurn reads a successful Chat Completions response body and
