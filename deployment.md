@@ -1,6 +1,6 @@
 # Deployment and running guide
 
-> Draft. The "How it is deployed" section is completed in the final phase.
+**Live:** https://isocodelabs.onrender.com
 
 ## Demo logins (for the reviewer)
 
@@ -97,10 +97,11 @@ The container applies pending migrations, then starts the server, which serves t
 | `DATABASE_URL` | Supabase session-pooler connection (port 5432), used by migrations, seeding and tests |
 | `DATABASE_URL_POOLED` | Supabase transaction-pooler connection (port 6543), used by the running app |
 | `AI_PROVIDER` | Which company's model runs the chat: `gemini` (default), `openai`, or `offline` (fixed replies only). This one setting switches provider |
-| `AI_MODEL` | Optional: the model, e.g. `gemini-3.5-flash-lite` or `gpt-5-nano`. Empty = that provider's default |
+| `AI_MODEL` | Optional: the model, e.g. `gemini-3.5-flash-lite` or `gpt-6-luna`. Empty = that provider's default (`gemini-3.5-flash-lite` / `gpt-6-luna`) |
 | `GEMINI_API_KEY` | Google Gemini key, needed when `AI_PROVIDER=gemini`. Free keys have small daily limits; the lite models allow the most |
 | `OPENAI_API_KEY` | OpenAI key, needed when `AI_PROVIDER=openai` |
 | `OPENAI_BASE_URL` | Optional: an OpenAI-compatible API instead of OpenAI (default `https://api.openai.com/v1`) |
+| `OPENAI_REASONING_EFFORT` | Optional: OpenAI's `reasoning_effort`. Empty = `none`, which `gpt-6-luna` needs to use tools on the Chat Completions API (and keeps replies fast and cheap). Older `gpt-5`/`gpt-5-mini`/`gpt-5-nano` need `minimal`; `off` leaves it out for models without reasoning such as `gpt-4.1-mini` |
 | `PORT` | HTTP port (default 8080) |
 | `APP_ENV` | `development` or `production`. **Unset means production** (secure cookies, HSTS, no dev origins); any other value stops the server. Set `development` only on your own machine |
 | `TRUSTED_PROXY_HEADER` | The one header your hosting platform's proxy sets to the real client IP, e.g. `Fly-Client-IP` (Fly.io) or `X-Forwarded-For` (Render, where the last entry is used). Leave empty when nothing sits in front of the server. Rate limits use it, so never set it to a header clients can send directly |
@@ -128,4 +129,16 @@ The `Dockerfile` at the repo root builds one image: the React app (Node 22), the
 
 Set `APP_ENV=production` (the image's default), the database URLs, the AI variables, `PII_ENCRYPTION_KEYS` and `PII_INDEX_KEY` (as platform secrets; the server will not start without them), and `TRUSTED_PROXY_HEADER` for your host. The image has a health check on `/healthz`.
 
-The live deployment and its URL are added in the final phase.
+### Live deployment
+
+**URL:** https://isocodelabs.onrender.com (buyer site at `/`, staff app at `/staff`, sign in with a demo login above).
+
+It runs as one **Render web service** (free instance, Singapore region, the closest Render region to the Supabase database in Sydney):
+
+- **Build:** Render builds the root `Dockerfile` straight from the GitHub repo and redeploys on every push to `main`. The frontend is built inside the image and served by the Go server from the same origin, so there is no separate frontend service, no CORS setup and `ALLOWED_ORIGINS` stays empty.
+- **Configuration:** set in Render's Environment tab (there is no `.env` file in the repo or the image): `DATABASE_URL`, `DATABASE_URL_POOLED`, `AI_PROVIDER=openai`, `AI_MODEL=gpt-6-luna`, `OPENAI_API_KEY`, `PII_ENCRYPTION_KEYS`, `PII_INDEX_KEY`, plus `PORT=8080`, `TRUSTED_PROXY_HEADER=X-Forwarded-For` and `PUBLIC_URL=https://isocodelabs.onrender.com`. `APP_ENV` is left unset, which means production.
+- **Health check:** Render checks `/healthz`, which also pings the database.
+- **Staying awake:** free Render instances sleep after 15 minutes without traffic. A free [cron-job.org](https://cron-job.org) job calls `/healthz` every 10 minutes so the site stays awake for reviewers and the background reminder sender keeps running. One always-on service uses about 744 of the 750 free instance hours a month.
+- **Database:** the existing Supabase project (Sydney), already migrated and seeded. The container still runs `./migrate` on every start, which does nothing when the schema is current.
+
+Checked after deploying: health check, both apps, public API, demo sign-in (session cookie `HttpOnly; Secure; SameSite=Lax`), six staff requests in parallel all answering in under 1.5 s, cross-site POSTs refused with 403, and the security headers (CSP, HSTS, `X-Frame-Options: DENY`, `nosniff`).
